@@ -424,7 +424,10 @@ function plan() {
 // ==========================================
 
 function sim() {
-    const getValue = (id) => Number($(id).value);
+    const getValue = (id) => {
+        const raw = $(id).value.trim();
+        return raw === '' ? NaN : Number(raw);
+    };
 
     const inputs = {
         C0: getValue('c0'),
