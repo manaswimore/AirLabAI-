@@ -96,5 +96,8 @@ assertions += 4;
 check(html.indexOf('/simulation.js') < html.indexOf('/app.js'), 'Calculation module loads before the application');
 check(app.includes('AirLabSimulation.calculateIndoorPM25'), 'UI uses the tested calculation module');
 check(app.includes('No finite steady state'), 'UI explains the no-steady-state case');
+check(!/\\nstatus\\(\\);\\s*\\nsearch\\(\\);\\s*$/.test(app), 'Initial page load does not wait for external API calls');
+check(app.includes("name === 'assistant' && !S.statusChecked"), 'Gemini status is checked only when assistant tab opens');
+check(app.includes("if (S.statusChecked) return;"), 'Gemini status check is not repeated unnecessarily');
 
 console.log('AirLab tests passed: ' + assertions + ' assertions.');
