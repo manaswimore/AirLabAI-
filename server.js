@@ -679,6 +679,7 @@ async function route(req, res) {
         '/',
         '/index.html',
         '/app.js',
+        '/simulation.js',
         '/styles.css',
         '/favicon.svg'
     ];
