@@ -165,7 +165,7 @@ function getJson(url) {
             }
         );
 
-        request.setTimeout(8000, () => {
+        request.setTimeout(12000, () => {
             request.destroy(
                 Error('Upstream request timed out.')
             );
@@ -173,6 +173,33 @@ function getJson(url) {
 
         request.on('error', reject);
     });
+}
+
+
+// Retry transient network resets and upstream 5xx responses.
+async function getJsonWithRetry(url, attempts = 3) {
+    let lastError;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+            return await getJson(url);
+        } catch (error) {
+            lastError = error;
+            const retryable = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|Upstream HTTP 5\\d\\d/i.test(
+                error.code || error.message || ''
+            );
+
+            if (!retryable || attempt === attempts - 1) {
+                throw error;
+            }
+
+            await new Promise((resolve) =>
+                setTimeout(resolve, 300 * (2 ** attempt))
+            );
+        }
+    }
+
+    throw lastError;
 }
 
  
@@ -187,7 +214,7 @@ async function getJsonCached(url, ttlMs) {
         return cached.data;
     }
 
-    const data = await getJson(url);
+    const data = await getJsonWithRetry(url);
     upstreamCache.set(url, {
         data,
         expiresAt: now + ttlMs
