@@ -32,11 +32,16 @@
         // With no removal, there is no unique finite steady state.
         // Concentration remains constant when A is zero, or rises linearly when A > 0.
         if (K === 0) {
+            const timeSeries = Array.from({ length: 25 }, (_, index) => {
+                const time = t * index / 24;
+                return { time, concentration: C0 + A * time };
+            });
             return {
                 A,
                 K,
                 steadyState: null,
                 concentration: C0 + A * t,
+                timeSeries,
                 t90SteadyStateMinutes: null,
                 t90AbsoluteMinutes: null
             };
