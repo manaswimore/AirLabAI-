@@ -285,11 +285,11 @@ function requestGemini(model, payload) {
             }
         );
 
-        // Allow Gemini more time to respond than the previous 25-second limit.
-        request.setTimeout(60000, () => {
+        // Fail fast so a stalled upstream request cannot block the assistant for a minute.
+        request.setTimeout(25000, () => {
             request.destroy(
                 Object.assign(
-                    Error('Gemini connection timed out after 60 seconds.'),
+                    Error('Gemini did not respond within 25 seconds. Please try again.'),
                     { code: 'ETIMEDOUT' }
                 )
             );
@@ -302,7 +302,7 @@ function requestGemini(model, payload) {
 }
 
 // Retry temporary API errors with exponential backoff.
-async function callModelWithRetry(model, payload, attempts = 2) {
+async function callModelWithRetry(model, payload, attempts = 1) {
     let lastResult;
 
     for (let attempt = 0; attempt < attempts; attempt++) {
@@ -352,7 +352,7 @@ async function resilientGemini(payload) {
     const primary = await callModelWithRetry(
         MODEL,
         payload,
-        2
+        1
     );
 
     const shouldUseFallback =
@@ -657,7 +657,7 @@ async function route(req, res) {
 
             generationConfig: {
                 temperature: 0.35,
-                maxOutputTokens: 900
+                maxOutputTokens: 600
             }
         });
 
