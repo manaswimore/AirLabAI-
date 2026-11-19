@@ -185,7 +185,7 @@ async function load(place) {
         $('insight').textContent +=
             ` Grid point ${data.latitude.toFixed(3)}, ` +
             `${data.longitude.toFixed(3)}. ` +
-            'Model estimate, not station measurement.';
+            'Model estimate, not station measurement. US AQI is a model index derived separately from the pollutant concentration fields; its value may not match a same-hour PM2.5 reading because AQI reporting uses pollutant-specific averaging conventions.';
 
         chart(data.hourly?.pm2_5 || []);
 
@@ -475,6 +475,8 @@ function sim() {
     try {
         result = AirLabSimulation.calculateIndoorPM25(inputs);
     } catch (error) {
+        $('simout').replaceChildren();
+        $('simseries').replaceChildren();
         return toast(error.message || 'Invalid simulator input');
     }
 
@@ -506,8 +508,8 @@ function sim() {
         value === null ? unavailable : value.toFixed(1) + ' min';
 
     $('simout').innerHTML = [
-        ['Steady state', steadyState === null ? 'No finite steady state' : steadyState.toFixed(2)],
-        ['Final concentration', concentration.toFixed(2)],
+        ['Steady state', steadyState === null ? 'No finite steady state' : steadyState.toFixed(2) + ' µg/m³'],
+        ['Final concentration', concentration.toFixed(2) + ' µg/m³'],
         ['t90 approach to steady state', formatMinutes(t90SteadyStateMinutes, 'Not defined')],
         ['Absolute 90% clearance', formatMinutes(t90AbsoluteMinutes, 'Not reachable')]
     ].map((item) => `
@@ -516,6 +518,22 @@ function sim() {
             <b>${item[1]}</b>
         </div>
     `).join('');
+
+    const series = result.timeSeries || [];
+    const table = document.createElement('table');
+    table.innerHTML = '<thead><tr><th>Time (h)</th><th>PM2.5 (µg/m³)</th></tr></thead>';
+    const body = document.createElement('tbody');
+    series.forEach((point) => {
+        const row = document.createElement('tr');
+        const time = document.createElement('td');
+        const value = document.createElement('td');
+        time.textContent = Number(point.time).toFixed(1);
+        value.textContent = Number(point.concentration).toFixed(2);
+        row.append(time, value);
+        body.append(row);
+    });
+    table.append(body);
+    $('simseries').replaceChildren(table);
 
     S.experiments.unshift(experiment);
     if (S.experiments.length > 100) S.experiments.length = 100;
@@ -763,18 +781,19 @@ $('compare').onclick = () => {
         return toast('Choose a valid commute mode.');
     }
 
-    const avoided =
-        km * 2 * days * 52 *
-        (mode === 'private'
-            ? 1
-            : mode === 'carpool'
-                ? 0.5
-                : 0
-        );
+    const annualSoloKm = km * 2 * days * 52;
+    const avoidedShare = {
+        private: 0,
+        carpool: 0.5,
+        public: 1,
+        walk: 1,
+        home: 1
+    }[mode];
+    const avoided = annualSoloKm * avoidedShare;
 
     $('mobout').innerHTML = `
         <article>
-            Illustrative solo vehicle distance avoided:
+            Illustrative solo-vehicle distance avoided versus solo driving:
             <b>${Math.round(avoided)} km/year</b>
             <br>
 
