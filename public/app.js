@@ -58,6 +58,11 @@ function nav(name) {
     if (name === 'experiments') {
         renderHistory();
     }
+
+    // Check Gemini only when the user opens its tab, not during initial page load.
+    if (name === 'assistant' && !S.statusChecked) {
+        status();
+    }
 }
 
 document.querySelectorAll('nav button').forEach((button) => {
@@ -659,6 +664,9 @@ async function ask() {
 // ==========================================
 
 async function status() {
+    if (S.statusChecked) return;
+    S.statusChecked = true;
+
     try {
         const data = await api('/api/status');
 
@@ -769,5 +777,5 @@ $('clear').onclick = () => {
 // 15. INITIALIZE APPLICATION
 // ==========================================
 
-status();
-search();
+// Keep first paint independent of external APIs. City search and Gemini
+// status checks run only after the user explicitly requests them.
