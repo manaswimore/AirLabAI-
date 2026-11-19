@@ -199,6 +199,14 @@ check(app.includes('history.replaceChildren()'), 'safe history check');
 
 check(app.includes('escapeCell'), 'CSV escaping check');
 
+check(app.includes(".join('\\\\r\\\\n')"), 'CSV uses real CRLF row separators');
+
+check(app.includes('No matching place found'), 'unknown city feedback');
+
+check(app.includes('planOutput.replaceChildren()'), 'invalid household results are cleared');
+
+check(app.includes("$('mobout').replaceChildren()"), 'invalid mobility results are cleared');
+
 check(server.includes('upstreamInFlight'), 'in-flight request deduplication check');
 
 check(server.includes('const retryableStatuses = [500, 502, 503, 504]'), '429 is not retried check');
