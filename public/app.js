@@ -426,82 +426,58 @@ function plan() {
 function sim() {
     const getValue = (id) => Number($(id).value);
 
-    const C0 = getValue('c0');
-    const Co = getValue('co');
-    const V = getValue('vol');
-    const lambda = getValue('ach');
-    const P = getValue('pen');
-    const k = getValue('dep');
-    const CADR = getValue('cadr');
-    const source = getValue('source');
-    const t = getValue('hours');
+    const inputs = {
+        C0: getValue('c0'),
+        Co: getValue('co'),
+        V: getValue('vol'),
+        lambda: getValue('ach'),
+        P: getValue('pen'),
+        k: getValue('dep'),
+        CADR: getValue('cadr'),
+        source: getValue('source'),
+        t: getValue('hours')
+    };
 
-    if (
-        [C0, Co, V, lambda, P, k, CADR, source, t]
-            .some((value) => !Number.isFinite(value)) ||
-        C0 < 0 ||
-        Co < 0 ||
-        V <= 0 ||
-        lambda < 0 ||
-        P < 0 ||
-        P > 1 ||
-        k < 0 ||
-        CADR < 0 ||
-        source < 0 ||
-        t <= 0
-    ) {
-        return toast('Invalid simulator input');
+    let result;
+
+    try {
+        result = AirLabSimulation.calculateIndoorPM25(inputs);
+    } catch (error) {
+        return toast(error.message || 'Invalid simulator input');
     }
 
-    const A = P * lambda * Co + source / V;
-    const K = lambda + k + CADR / V;
-
-    const steadyState = K ? A / K : 0;
-
-    const concentration =
-        steadyState +
-        (C0 - steadyState) * Math.exp(-K * t);
-
-    const t90SteadyState = K
-        ? Math.log(10) / K * 60
-        : null;
-
-    const t90Absolute =
-        steadyState < 0.1 * C0 && C0 > steadyState
-            ? -Math.log(
-                (0.1 * C0 - steadyState) /
-                (C0 - steadyState)
-            ) / K * 60
-            : null;
+    const {
+        steadyState,
+        concentration,
+        t90SteadyStateMinutes,
+        t90AbsoluteMinutes
+    } = result;
 
     const experiment = {
         date: new Date().toISOString(),
-        C0,
-        Co,
-        V,
-        l: lambda,
-        P,
-        k,
-        cad: CADR,
-        src: source,
-        t,
+        C0: inputs.C0,
+        Co: inputs.Co,
+        V: inputs.V,
+        l: inputs.lambda,
+        P: inputs.P,
+        k: inputs.k,
+        cad: inputs.CADR,
+        src: inputs.source,
+        t: inputs.t,
         ss: steadyState,
         ct: concentration,
-        tss: t90SteadyState,
-        ta: t90Absolute
+        tss: t90SteadyStateMinutes,
+        ta: t90AbsoluteMinutes
     };
 
+    const formatMinutes = (value, unavailable) =>
+        value === null ? unavailable : value.toFixed(1) + ' min';
+
     $('simout').innerHTML = [
-        ['Steady state', steadyState.toFixed(2)],
+        ['Steady state', steadyState === null ? 'No finite steady state' : steadyState.toFixed(2)],
         ['Final concentration', concentration.toFixed(2)],
-        [
-            't90 approach to steady state',
-            t90SteadyState?.toFixed(1) + ' min' || 'Undefined'
-        ],
-        [
-            'Absolute 90% clearance',
-            t90Absolute?.toFixed(1) + ' min' || 'Not reachable'
-        ]
+        ['t90 approach to steady state', formatMinutes(t90SteadyStateMinutes, 'Not defined')],
+        ['Absolute 90% clearance', formatMinutes(t90AbsoluteMinutes, 'Not reachable')]
     ].map((item) => `
         <div>
             ${item[0]}
@@ -510,9 +486,7 @@ function sim() {
     `).join('');
 
     S.experiments.unshift(experiment);
-
     save();
-
     toast('Experiment saved');
 }
 
