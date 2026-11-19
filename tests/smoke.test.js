@@ -25,7 +25,7 @@ for (const id of ['overview', 'household', 'simulator', 'mobility', 'assistant',
 for (const route of ['/api/status', '/api/geocode', '/api/air-quality', '/api/chat']) {
     check(server.includes(route), 'API route exists: ' + route);
 }
-check(!/AQ\\.[A-Za-z0-9_-]{20,}/.test(app), 'No API key is hardcoded in browser JavaScript');
+check(!/AQ\.[A-Za-z0-9_-]{20,}/.test(app), 'No API key is hardcoded in browser JavaScript');
 
 // Gemini resilience and private configuration.
 for (const snippet of [
