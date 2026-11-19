@@ -1,0 +1,671 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#09070d">
+
+  <meta
+    name="description"
+    content="AirLab AI — urban air quality insights, household action plans, indoor PM2.5 simulation and low-emission routines."
+  >
+
+  <title>AirLab AI · Urban Air Assistant</title>
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap"
+    rel="stylesheet"
+  >
+
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+
+  <!-- Sidebar Navigation -->
+  <aside id="side">
+
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">A</span>
+
+      <div>
+        <b>AirLab AI</b>
+        <small>URBAN AIR INTELLIGENCE</small>
+      </div>
+    </div>
+
+    <div class="nav-label">WORKSPACE</div>
+
+    <nav aria-label="Main navigation">
+
+      <button class="active" data-tab="overview">
+        <span class="nav-icon" aria-hidden="true">◈</span>
+        Air Overview
+      </button>
+
+      <button data-tab="household">
+        <span class="nav-icon" aria-hidden="true">⌂</span>
+        Household Action Plan
+      </button>
+
+      <button data-tab="simulator">
+        <span class="nav-icon" aria-hidden="true">◉</span>
+        Indoor PM2.5 Simulator
+      </button>
+
+      <button data-tab="mobility">
+        <span class="nav-icon" aria-hidden="true">↗</span>
+        Low-emission Routines
+      </button>
+
+      <button data-tab="assistant">
+        <span class="nav-icon" aria-hidden="true">✳</span>
+        Gemini Assistant
+      </button>
+
+      <button data-tab="experiments">
+        <span class="nav-icon" aria-hidden="true">▤</span>
+        My Experiments
+      </button>
+
+    </nav>
+
+    <small class="foot">PROMPTWARS · CHALLENGE 06</small>
+
+  </aside>
+
+
+  <!-- Main Content -->
+  <main>
+
+    <!-- Header -->
+    <header>
+
+      <button id="menu" aria-label="Open navigation">
+        ☰
+      </button>
+
+      <div>
+        <small>PROMPTWARS · CHALLENGE 06</small>
+        <h1 id="title">Air Overview</h1>
+      </div>
+
+      <span id="status">Choose a location</span>
+
+    </header>
+
+
+    <!-- Air Overview Section -->
+    <section id="overview" class="tab show">
+
+      <div class="hero">
+
+        <small>URBAN AIR QUALITY ASSISTANT</small>
+
+        <h2>
+          Understand your air.<br>
+          <em>Make healthier choices.</em>
+        </h2>
+
+        <p>
+          Model-informed outdoor air quality, household protection
+          and sustainable everyday actions.
+        </p>
+
+      </div>
+
+
+      <!-- Location Search -->
+      <article>
+
+        <h3>Find your location</h3>
+
+        <p>
+          Search for a city. Outdoor data comes from CAMS model
+          forecasts, not a regulatory monitor.
+        </p>
+
+        <div class="row">
+
+          <input
+            id="city"
+            value="Pune"
+            placeholder="Pune, Delhi, Mumbai…"
+            aria-label="Search city"
+          >
+
+          <button id="search">
+            Find air quality
+          </button>
+
+        </div>
+
+        <div id="places" aria-live="polite"></div>
+
+      </article>
+
+
+      <!-- Air Quality Metrics -->
+      <div class="metrics" id="metrics">
+
+        <div>
+          PM2.5
+          <b>—</b>
+          µg/m³
+        </div>
+
+        <div>
+          PM10
+          <b>—</b>
+          µg/m³
+        </div>
+
+        <div>
+          US AQI
+          <b>—</b>
+          model index
+        </div>
+
+        <div>
+          NO₂
+          <b>—</b>
+          µg/m³
+        </div>
+
+      </div>
+
+
+      <!-- Chart and Interpretation -->
+      <div class="cols">
+
+        <article>
+
+          <h3>Next 24 hours · PM2.5</h3>
+
+          <canvas
+            id="chart"
+            height="190"
+            aria-label="Hourly PM2.5 forecast chart"
+          ></canvas>
+
+        </article>
+
+
+        <article>
+
+          <h3>Air quality interpretation</h3>
+
+          <p id="insight">
+            Choose a location to load the current model estimate.
+          </p>
+
+          <small>
+            Source: Open-Meteo Air Quality API / CAMS.
+            Grid-cell estimates can differ from street-level conditions.
+          </small>
+
+        </article>
+
+      </div>
+
+    </section>
+
+
+    <!-- Household Action Plan Section -->
+    <section id="household" class="tab">
+
+      <h2>Your household air action plan</h2>
+
+      <p>
+        Personalize recommendations for your household and local
+        model conditions.
+      </p>
+
+
+      <article class="form">
+
+        <label>
+          Household size
+          <input
+            id="hh"
+            type="number"
+            min="1"
+            max="20"
+            value="4"
+          >
+        </label>
+
+
+        <label>
+          Outdoor time
+
+          <select id="outdoor">
+
+            <option value="low">Under 30 min</option>
+
+            <option value="medium" selected>
+              30–90 min
+            </option>
+
+            <option value="high">Over 90 min</option>
+
+          </select>
+        </label>
+
+
+        <label>
+          Commute
+
+          <select id="commute">
+
+            <option value="private">Private vehicle</option>
+
+            <option value="public">Public transport</option>
+
+            <option value="carpool">Carpool</option>
+
+            <option value="walk">Walk/cycle</option>
+
+            <option value="home">Work from home</option>
+
+          </select>
+        </label>
+
+
+        <label>
+          Household priority
+
+          <select id="priority">
+
+            <option value="general">General</option>
+
+            <option value="children">Children</option>
+
+            <option value="older">Older adults</option>
+
+            <option value="sensitive">
+              Respiratory-sensitive member
+            </option>
+
+          </select>
+        </label>
+
+
+        <label>
+          Indoor PM2.5 optional
+
+          <input
+            id="indoor"
+            type="number"
+            min="0"
+            placeholder="µg/m³"
+          >
+        </label>
+
+
+        <label>
+          Room volume
+
+          <input
+            id="volume"
+            type="number"
+            min="5"
+            value="50"
+          >
+        </label>
+
+
+        <button id="plan">
+          Generate action plan
+        </button>
+
+      </article>
+
+
+      <div id="planout"></div>
+
+    </section>
+
+
+    <!-- Indoor PM2.5 Simulator Section -->
+    <section id="simulator" class="tab">
+
+      <h2>Indoor PM2.5 simulator</h2>
+
+      <p>
+        Single-zone, well-mixed mass-balance model with constant inputs.
+      </p>
+
+
+      <article class="form">
+
+        <label>
+          Initial PM2.5 C₀
+
+          <input
+            id="c0"
+            type="number"
+            value="55"
+          >
+        </label>
+
+
+        <label>
+          Outdoor PM2.5
+
+          <input
+            id="co"
+            type="number"
+            value="45"
+          >
+        </label>
+
+
+        <label>
+          Room volume V
+
+          <input
+            id="vol"
+            type="number"
+            value="50"
+          >
+        </label>
+
+
+        <label>
+          Air changes λ (h⁻¹)
+
+          <input
+            id="ach"
+            type="number"
+            value=".5"
+          >
+        </label>
+
+
+        <label>
+          Penetration P
+
+          <input
+            id="pen"
+            type="number"
+            value=".8"
+          >
+        </label>
+
+
+        <label>
+          Deposition k (h⁻¹)
+
+          <input
+            id="dep"
+            type="number"
+            value=".24"
+          >
+        </label>
+
+
+        <label>
+          Filter CADR
+
+          <input
+            id="cadr"
+            type="number"
+            value="320"
+          >
+        </label>
+
+
+        <label>
+          Indoor source S (µg/h)
+
+          <input
+            id="source"
+            type="number"
+            value="350"
+          >
+        </label>
+
+
+        <label>
+          Duration hours
+
+          <input
+            id="hours"
+            type="number"
+            value="24"
+          >
+        </label>
+
+
+        <button id="simulate">
+          Run simulation &amp; save
+        </button>
+
+      </article>
+
+
+      <div id="simout" class="metrics"></div>
+
+
+      <small>
+        Equation: dC/dt = PλCout + S/V − (λ+k+CADR/V)C.
+        t90,ss measures decay of excess above steady state,
+        not absolute 90% clearance.
+      </small>
+
+    </section>
+
+
+    <!-- Low-emission Routines Section -->
+    <section id="mobility" class="tab">
+
+      <h2>Low-emission daily routines</h2>
+
+      <p>
+        Estimate travel scenarios with explicit, editable assumptions.
+      </p>
+
+
+      <article class="form">
+
+        <label>
+          Current mode
+
+          <select id="mode">
+
+            <option value="private">Solo vehicle</option>
+
+            <option value="carpool">Carpool</option>
+
+            <option value="public">Public transport</option>
+
+          </select>
+        </label>
+
+
+        <label>
+          One-way distance km
+
+          <input
+            id="km"
+            type="number"
+            value="10"
+          >
+        </label>
+
+
+        <label>
+          Days/week
+
+          <input
+            id="days"
+            type="number"
+            value="5"
+          >
+        </label>
+
+
+        <label>
+          Vehicle factor kg CO₂/km
+
+          <input
+            id="ef"
+            type="number"
+            value=".18"
+            step=".01"
+          >
+        </label>
+
+
+        <button id="compare">
+          Compare routine
+        </button>
+
+      </article>
+
+
+      <div id="mobout"></div>
+
+
+      <!-- Practical Daily Actions -->
+      <article>
+
+        <h3>Practical daily actions</h3>
+
+        <ul>
+
+          <li>
+            Combine errands and avoid unnecessary idling.
+          </li>
+
+          <li>
+            Prefer public transport or carpooling for suitable trips.
+          </li>
+
+          <li>
+            Check trusted local readings before prolonged outdoor exercise.
+          </li>
+
+          <li>
+            Ventilate when outdoor air is cleaner than indoor air.
+          </li>
+
+          <li>
+            Use a correctly sized HEPA purifier; avoid indoor combustion sources.
+          </li>
+
+        </ul>
+
+      </article>
+
+
+      <small>
+        Impact is a scenario estimate, not a measured emissions reduction.
+      </small>
+
+    </section>
+
+
+    <!-- Gemini Assistant Section -->
+    <section id="assistant" class="tab">
+
+      <h2>Gemini air-quality assistant</h2>
+
+      <p id="gemstatus">
+        Checking backend…
+      </p>
+
+
+      <article>
+
+        <div id="chat" aria-live="polite">
+
+          <p class="bubble welcome-message">
+            Ask about winter smog, PM2.5, indoor filtration
+            or low-emission routines.
+          </p>
+
+        </div>
+
+
+        <textarea
+          id="question"
+          placeholder="Ask AirLab AI…"
+          aria-label="Message for AirLab AI"
+        ></textarea>
+
+
+        <button id="ask">
+          Send to Gemini
+        </button>
+
+
+        <small>
+          Live requests use your server-side key.
+          If not configured, no mock reply is presented as live.
+        </small>
+
+      </article>
+
+    </section>
+
+
+    <!-- My Experiments Section -->
+    <section id="experiments" class="tab">
+
+      <h2>My experiments</h2>
+
+      <p>
+        Review your saved indoor PM2.5 simulations
+        and export the results.
+      </p>
+
+
+      <button id="csv">
+        Export CSV
+      </button>
+
+      <button id="clear">
+        Clear history
+      </button>
+
+
+      <div id="history"></div>
+
+    </section>
+
+
+    <!-- Footer -->
+    <footer>
+
+      Outdoor data: Open-Meteo / CAMS model forecast.
+      Verify local conditions with CPCB or State Pollution Control Board.
+      Educational tool, not medical advice.
+
+    </footer>
+
+  </main>
+
+
+  <!-- Toast Notifications -->
+  <div
+    id="toast"
+    role="status"
+    aria-live="polite"
+  ></div>
+
+
+  <!-- Main JavaScript -->
+  <script src="/app.js"></script>
+
+</body>
+</html>
