@@ -216,3 +216,9 @@ check(server.includes('req.resume();'), 'oversized body drain check');
 check(server.includes('requestHits.size > 1000'), 'rate limiter cleanup check');
 
 console.log('AirLab tests passed: ' + assertions + ' assertions.');
+
+check(simulation.includes('timeSeries'), 'simulator returns a time series');
+check(app.includes("$('simseries').replaceChildren(table)"), 'simulator renders a unit-labelled time series');
+check(app.includes("$('simout').replaceChildren()"), 'invalid simulator output is cleared');
+check(app.includes('annualSoloKm'), 'mobility uses a shared annual solo-driving baseline');
+check(html.includes('<option value="home">Work from home</option>'), 'work-from-home mode is available');
