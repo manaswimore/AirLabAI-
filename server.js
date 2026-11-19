@@ -385,7 +385,11 @@ async function resilientGemini(payload) {
         return {
             ...fallback,
             primaryUnavailable: true,
-            primaryModel: MODEL
+            primaryModel: MODEL,
+            primaryStatus: primary.status || null,
+            primaryError: primary.data?.error?.message || primary.message || null,
+            fallbackStatus: fallback.status || null,
+            fallbackError: fallback.data?.error?.message || fallback.message || null
         };
     }
 
@@ -682,19 +686,36 @@ async function route(req, res) {
                         ? 503
                         : 502;
 
+                const primaryDetail = result.primaryError
+                    ? ` Primary (${result.primaryModel}) returned: ${result.primaryError}`
+                    : '';
+                const fallbackDetail = result.fallbackError
+                    ? ` Fallback (${result.model || FALLBACK_MODEL}) returned: ${result.fallbackError}`
+                    : '';
+                const upstreamMessage = result.data?.error?.message ||
+                    `Gemini HTTP ${result.status}`;
+
+                console.error(
+                    'Gemini request failed:',
+                    JSON.stringify({
+                        primaryModel: result.primaryModel || MODEL,
+                        primaryStatus: result.primaryStatus || result.status,
+                        primaryError: result.primaryError || upstreamMessage,
+                        fallbackModel: result.model || FALLBACK_MODEL,
+                        fallbackStatus: result.fallbackStatus || result.status,
+                        fallbackError: result.fallbackError || upstreamMessage
+                    })
+                );
+
                 return send(res, statusCode, {
                     error: isUnavailable
-                        ? 'Gemini is temporarily unavailable. AirLab retried the primary model and attempted the fallback model. Please try again shortly.'
-                        : (
-                            result.data?.error?.message ||
-                            `Gemini HTTP ${result.status}`
-                        ),
-
+                        ? `Gemini is temporarily unavailable.${primaryDetail}${fallbackDetail}`
+                        : upstreamMessage,
                     upstreamStatus: result.status,
-
                     model: result.model || MODEL,
-
-                    primaryModel: result.primaryModel || null
+                    primaryModel: result.primaryModel || null,
+                    primaryStatus: result.primaryStatus || null,
+                    fallbackStatus: result.fallbackStatus || null
                 });
             }
 
