@@ -510,8 +510,8 @@ function sim() {
     `).join('');
 
     S.experiments.unshift(experiment);
-    save();
-    toast('Experiment saved');
+    if (S.experiments.length > 100) S.experiments.length = 100;
+    if (save()) toast('Experiment saved');
 }
 
 // ==========================================
