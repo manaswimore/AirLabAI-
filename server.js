@@ -45,6 +45,7 @@ function loadLocalEnv() {
             continue;
         }
 
+        // Keep a non-empty variable already supplied by the OS.
         if (
             process.env[name] !== undefined &&
             String(process.env[name]).trim() !== ''
@@ -74,8 +75,12 @@ const keySource = loadLocalEnv();
 // ==========================================
 
 const PORT = Number(process.env.PORT || 3000);
+
 const KEY = (process.env.GEMINI_API_KEY || '').trim();
-const MODEL = (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim();
+
+const MODEL = (
+    process.env.GEMINI_MODEL || 'gemini-3.8-flash'
+).trim();
 
 const FALLBACK_MODEL = (
     process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'
@@ -122,6 +127,7 @@ function getJson(url) {
                 let raw = '';
 
                 response.setEncoding('utf8');
+
                 response.on('data', (chunk) => {
                     raw += chunk;
                 });
@@ -132,7 +138,12 @@ function getJson(url) {
                     try {
                         data = JSON.parse(raw);
                     } catch {
-                        reject(Error('The upstream service returned invalid JSON.'));
+                        reject(
+                            Error(
+                                'The upstream service returned invalid JSON.'
+                            )
+                        );
+
                         return;
                     }
 
@@ -155,7 +166,9 @@ function getJson(url) {
         );
 
         request.setTimeout(15000, () => {
-            request.destroy(Error('Upstream request timed out.'));
+            request.destroy(
+                Error('Upstream request timed out.')
+            );
         });
 
         request.on('error', reject);
@@ -191,6 +204,7 @@ function requestGemini(model, payload) {
                 let raw = '';
 
                 response.setEncoding('utf8');
+
                 response.on('data', (chunk) => {
                     raw += chunk;
                 });
@@ -217,7 +231,7 @@ function requestGemini(model, payload) {
             }
         );
 
-        // Allow Gemini up to 60 seconds to respond.
+        // Allow Gemini more time to respond than the previous 25-second limit.
         request.setTimeout(60000, () => {
             request.destroy(
                 Object.assign(
@@ -228,6 +242,7 @@ function requestGemini(model, payload) {
         });
 
         request.on('error', reject);
+
         request.end(payload);
     });
 }
@@ -246,19 +261,17 @@ async function callModelWithRetry(model, payload, attempts = 2) {
 
             lastResult = result;
 
-            const retryableStatuses = [
-                429,
-                500,
-                502,
-                503,
-                504
-            ];
+            // Do not retry client errors such as invalid requests or invalid keys.
+            const retryableStatuses = [429, 500, 502, 503, 504];
 
-            const isRetryable = retryableStatuses.includes(result.status);
+            const isRetryable = retryableStatuses.includes(
+                result.status
+            );
 
             if (!isRetryable || attempt === attempts - 1) {
                 return result;
             }
+
         } catch (error) {
             lastResult = {
                 networkError: true,
@@ -271,7 +284,7 @@ async function callModelWithRetry(model, payload, attempts = 2) {
             }
         }
 
-        // Wait 1 second, then 2 seconds, between attempts.
+        // 1 second, then 2 seconds, then longer if more attempts are configured.
         await wait(1000 * (2 ** attempt));
     }
 
@@ -279,8 +292,14 @@ async function callModelWithRetry(model, payload, attempts = 2) {
 }
 
 // Try the primary model, then use the fallback for network/server failures.
+// HTTP 429 is retried on the primary model but does not automatically switch
+// models because it may represent a project-wide quota or rate-limit condition.
 async function resilientGemini(payload) {
-    const primary = await callModelWithRetry(MODEL, payload, 2);
+    const primary = await callModelWithRetry(
+        MODEL,
+        payload,
+        2
+    );
 
     const shouldUseFallback =
         primary.networkError ||
@@ -337,7 +356,9 @@ function readJsonBody(req, maxBytes = 12000) {
 
             if (Buffer.byteLength(raw) > maxBytes) {
                 settled = true;
+
                 reject(Error('Payload too large'));
+
                 req.destroy();
             }
         });
@@ -398,7 +419,9 @@ async function route(req, res) {
     // --------------------------------------
 
     if (req.method === 'GET' && url.pathname === '/api/geocode') {
-        const query = (url.searchParams.get('q') || '')
+        const query = (
+            url.searchParams.get('q') || ''
+        )
             .trim()
             .slice(0, 100);
 
@@ -430,8 +453,11 @@ async function route(req, res) {
                     timezone: item.timezone || 'auto'
                 }))
             });
+
         } catch (error) {
-            return send(res, 502, { error: error.message });
+            return send(res, 502, {
+                error: error.message
+            });
         }
     }
 
@@ -440,8 +466,13 @@ async function route(req, res) {
     // --------------------------------------
 
     if (req.method === 'GET' && url.pathname === '/api/air-quality') {
-        const latitude = Number(url.searchParams.get('lat'));
-        const longitude = Number(url.searchParams.get('lon'));
+        const latitude = Number(
+            url.searchParams.get('lat')
+        );
+
+        const longitude = Number(
+            url.searchParams.get('lon')
+        );
 
         if (
             !Number.isFinite(latitude) ||
@@ -460,10 +491,14 @@ async function route(req, res) {
             const params = new URLSearchParams({
                 latitude: String(latitude),
                 longitude: String(longitude),
+
                 current:
                     'pm2_5,pm10,us_aqi,european_aqi,nitrogen_dioxide,ozone',
+
                 hourly: 'pm2_5,pm10,us_aqi',
+
                 forecast_days: '3',
+
                 timezone: 'auto'
             });
 
@@ -478,8 +513,11 @@ async function route(req, res) {
                 measurementType:
                     'Not a regulatory ground-station measurement'
             });
+
         } catch (error) {
-            return send(res, 502, { error: error.message });
+            return send(res, 502, {
+                error: error.message
+            });
         }
     }
 
@@ -489,6 +527,7 @@ async function route(req, res) {
 
     if (req.method === 'POST' && url.pathname === '/api/chat') {
         const ip = req.socket.remoteAddress || 'unknown';
+
         const now = Date.now();
 
         const recentHits = (requestHits.get(ip) || [])
@@ -501,18 +540,22 @@ async function route(req, res) {
         }
 
         recentHits.push(now);
+
         requestHits.set(ip, recentHits);
 
         let requestBody;
 
         try {
             requestBody = await readJsonBody(req);
+
         } catch (error) {
             const statusCode = error.message === 'Payload too large'
                 ? 413
                 : 400;
 
-            return send(res, statusCode, { error: error.message });
+            return send(res, statusCode, {
+                error: error.message
+            });
         }
 
         const message = String(requestBody.message || '')
@@ -531,8 +574,9 @@ async function route(req, res) {
             });
         }
 
-        const context = JSON.stringify(requestBody.context || {})
-            .slice(0, 4000);
+        const context = JSON.stringify(
+            requestBody.context || {}
+        ).slice(0, 4000);
 
         const prompt = [
             'You are AirLab AI.',
@@ -547,9 +591,14 @@ async function route(req, res) {
             contents: [
                 {
                     role: 'user',
-                    parts: [{ text: prompt }]
+                    parts: [
+                        {
+                            text: prompt
+                        }
+                    ]
                 }
             ],
+
             generationConfig: {
                 temperature: 0.35,
                 maxOutputTokens: 900
@@ -563,6 +612,7 @@ async function route(req, res) {
                 return send(res, 502, {
                     error:
                         `Gemini connection failed after retry/fallback: ${result.message}`,
+
                     model: result.model || null
                 });
             }
@@ -583,8 +633,11 @@ async function route(req, res) {
                             result.data?.error?.message ||
                             `Gemini HTTP ${result.status}`
                         ),
+
                     upstreamStatus: result.status,
+
                     model: result.model || MODEL,
+
                     primaryModel: result.primaryModel || null
                 });
             }
@@ -610,6 +663,7 @@ async function route(req, res) {
                 fallbackUsed: Boolean(result.fallbackUsed),
                 reply
             });
+
         } catch (error) {
             return send(res, 502, {
                 error: `Gemini request failed: ${error.message}`
@@ -629,27 +683,40 @@ async function route(req, res) {
         '/favicon.svg'
     ];
 
-    if (req.method === 'GET' && allowedFiles.includes(url.pathname)) {
+    if (
+        req.method === 'GET' &&
+        allowedFiles.includes(url.pathname)
+    ) {
         const filename = url.pathname === '/'
             ? 'index.html'
             : url.pathname.slice(1);
 
-        const filePath = path.join(publicDirectory, filename);
+        const filePath = path.join(
+            publicDirectory,
+            filename
+        );
 
         try {
             const fileContent = fs.readFileSync(filePath);
 
             res.writeHead(200, {
-                'Content-Type': mimeTypes[path.extname(filePath)] ||
+                'Content-Type':
+                    mimeTypes[path.extname(filePath)] ||
                     'application/octet-stream',
+
                 'X-Content-Type-Options': 'nosniff',
+
                 'X-Frame-Options': 'DENY',
+
                 'Cache-Control': 'no-cache'
             });
 
             return res.end(fileContent);
+
         } catch {
-            return send(res, 404, { error: 'Not found' });
+            return send(res, 404, {
+                error: 'Not found'
+            });
         }
     }
 
@@ -657,7 +724,9 @@ async function route(req, res) {
     // UNKNOWN ROUTE
     // --------------------------------------
 
-    return send(res, 404, { error: 'Not found' });
+    return send(res, 404, {
+        error: 'Not found'
+    });
 }
 
 // ==========================================
@@ -666,12 +735,17 @@ async function route(req, res) {
 
 const server = http.createServer((req, res) => {
     route(req, res).catch((error) => {
-        console.error('Request handling error:', error.message);
+        // Avoid exposing internal exception details to the browser.
+        console.error(
+            'Request handling error:',
+            error.message
+        );
 
         if (!res.headersSent) {
             send(res, 500, {
                 error: 'Internal server error.'
             });
+
         } else if (!res.writableEnded) {
             res.end();
         }
@@ -679,11 +753,16 @@ const server = http.createServer((req, res) => {
 });
 
 server.on('error', (error) => {
-    console.error('Server startup error:', error.message);
+    console.error(
+        'Server startup error:',
+        error.message
+    );
+
     process.exitCode = 1;
 });
 
-server.listen(PORT, () => {
+// Bind to 0.0.0.0 so Render can expose the web service.
+server.listen(PORT, '0.0.0.0', () => {
     console.log(
         `AirLab AI: http://localhost:${PORT}\n` +
         `Gemini key present: ${Boolean(KEY)} (authentication unverified)\n` +
