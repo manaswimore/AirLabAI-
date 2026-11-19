@@ -205,28 +205,25 @@ async function getJsonWithRetry(url, attempts = 3) {
  
 // Cache successful upstream responses to avoid repeating slow external calls.
 const upstreamCache = new Map();
+const upstreamInFlight = new Map();
 
 async function getJsonCached(url, ttlMs) {
-    const now = Date.now();
     const cached = upstreamCache.get(url);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+    if (upstreamInFlight.has(url)) return upstreamInFlight.get(url);
 
-    if (cached && cached.expiresAt > now) {
-        return cached.data;
-    }
+    const pending = getJsonWithRetry(url)
+        .then((data) => {
+            upstreamCache.set(url, { data, expiresAt: Date.now() + ttlMs });
+            while (upstreamCache.size > 100) {
+                upstreamCache.delete(upstreamCache.keys().next().value);
+            }
+            return data;
+        })
+        .finally(() => upstreamInFlight.delete(url));
 
-    const data = await getJsonWithRetry(url);
-    upstreamCache.set(url, {
-        data,
-        expiresAt: now + ttlMs
-    });
-
-    // Keep the cache bounded for long-running deployments.
-    if (upstreamCache.size > 100) {
-        const oldestKey = upstreamCache.keys().next().value;
-        upstreamCache.delete(oldestKey);
-    }
-
-    return data;
+    upstreamInFlight.set(url, pending);
+    return pending;
 }
 
 // ==========================================
@@ -316,7 +313,7 @@ async function callModelWithRetry(model, payload, attempts = 1) {
             lastResult = result;
 
             // Do not retry client errors such as invalid requests or invalid keys.
-            const retryableStatuses = [429, 500, 502, 503, 504];
+            const retryableStatuses = [500, 502, 503, 504];
 
             const isRetryable = retryableStatuses.includes(
                 result.status
@@ -345,9 +342,9 @@ async function callModelWithRetry(model, payload, attempts = 1) {
     return lastResult;
 }
 
-// Try the primary model, then use the fallback for network/server failures.
-// HTTP 429 is retried on the primary model but does not automatically switch
-// models because it may represent a project-wide quota or rate-limit condition.
+// Try the primary model once, then use fallback only for network/5xx failures.
+// HTTP 429 is neither retried nor sent to fallback: it may be a project-wide
+// quota/rate-limit condition, and another model request would add load.
 async function resilientGemini(payload) {
     const primary = await callModelWithRetry(
         MODEL,
@@ -414,10 +411,8 @@ function readJsonBody(req, maxBytes = 12000) {
 
             if (Buffer.byteLength(raw) > maxBytes) {
                 settled = true;
-
                 reject(Error('Payload too large'));
-
-                req.destroy();
+                req.resume();
             }
         });
 
@@ -465,7 +460,7 @@ async function route(req, res) {
             geminiModel: MODEL,
             geminiFallbackModel: FALLBACK_MODEL,
             geminiResilience:
-                'Primary retry with exponential backoff; fallback on network/server errors',
+                'One primary attempt; fallback on network/server errors; no retry on HTTP 429',
             airProvider: 'Open-Meteo Air Quality API / CAMS model data',
             keySource,
             note: 'Key presence does not prove successful authentication.'
@@ -592,6 +587,14 @@ async function route(req, res) {
 
         const recentHits = (requestHits.get(ip) || [])
             .filter((timestamp) => now - timestamp < 60000);
+
+        if (requestHits.size > 1000) {
+            for (const [clientIp, hits] of requestHits) {
+                if (!hits.some((timestamp) => now - timestamp < 60000)) {
+                    requestHits.delete(clientIp);
+                }
+            }
+        }
 
         if (recentHits.length >= 12) {
             return send(res, 429, {
