@@ -37,7 +37,9 @@ for (const snippet of [
     check(server.includes(snippet), 'Server resilience feature exists: ' + snippet);
 }
 check(app.includes('fallbackUsed'), 'UI identifies fallback responses');
-check(app.includes('Automatic retry enabled'), 'UI describes retry behavior');
+check(app.includes('Thinking…'), 'Assistant shows a visible loading state');
+check(server.includes('setTimeout(25000'), 'Gemini upstream timeout is bounded to 25 seconds');
+check(server.includes('maxOutputTokens: 600'), 'Gemini response length is bounded for faster replies');
 check(server.includes('function loadLocalEnv()'), 'Server loads local environment configuration');
 check(server.includes("path.join(__dirname, '.env')"), 'Server reads .env from project folder');
 check(fs.existsSync(path.join(root, '.env.example')), 'Safe environment template exists');
