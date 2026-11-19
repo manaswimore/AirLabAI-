@@ -656,10 +656,18 @@ async function ask() {
         errorMessage.className =
             'bubble message error-message';
 
-        errorMessage.textContent =
-            'Live request failed: ' +
-            error.message +
-            ' (No mock answer is shown as live.)';
+        const isQuotaError =
+            /429|quota exceeded|rate limit|too many requests/i.test(
+                error.message || ''
+            );
+
+        errorMessage.textContent = isQuotaError
+            ? 'Daily AI limit reached. Gemini is temporarily unavailable ' +
+              'because today\'s API quota has been exhausted. Please try again ' +
+              'after the quota resets. Other AirLab features remain available.'
+            : 'Live request failed: ' +
+              error.message +
+              ' (No mock answer is shown as live.)';
 
         $('chat').append(errorMessage);
         $('chat').scrollTop = $('chat').scrollHeight;
