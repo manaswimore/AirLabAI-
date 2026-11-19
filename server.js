@@ -708,9 +708,11 @@ async function route(req, res) {
                 );
 
                 return send(res, statusCode, {
-                    error: isUnavailable
-                        ? `Gemini is temporarily unavailable.${primaryDetail}${fallbackDetail}`
-                        : upstreamMessage,
+                    error: result.status === 429
+                        ? 'Daily Gemini AI quota reached. The live AI assistant is temporarily unavailable. Please try again after the quota resets. Other AirLab features remain available.'
+                        : isUnavailable
+                            ? `Gemini is temporarily unavailable.${primaryDetail}${fallbackDetail}`
+                            : upstreamMessage,
                     upstreamStatus: result.status,
                     model: result.model || MODEL,
                     primaryModel: result.primaryModel || null,
