@@ -172,6 +172,7 @@ assert.throws(() => calculate({ ...base, source: -1 }), /valid ranges/, 'Negativ
 assert.throws(() => calculate({ ...base, C0: Infinity }), /finite numbers/, 'Infinite concentration is rejected');
 assert.throws(() => calculate({ ...base, P: -0.1 }), /valid ranges/, 'Negative penetration is rejected');
 assert.throws(() => calculate({ ...base, V: -1 }), /valid ranges/, 'Negative room volume is rejected');
+assertions += 20;
 
 assert.throws(() => calculate({ ...base, V: 0 }), /valid ranges/, 'Zero room volume is rejected');
 assert.throws(() => calculate({ ...base, P: 1.2 }), /valid ranges/, 'Penetration above one is rejected');
