@@ -185,7 +185,7 @@ async function getJsonWithRetry(url, attempts = 3) {
             return await getJson(url);
         } catch (error) {
             lastError = error;
-            const retryable = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|Upstream HTTP 5\\d\\d/i.test(
+            const retryable = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|Upstream HTTP 5\d\d/i.test(
                 error.code || error.message || ''
             );
 
