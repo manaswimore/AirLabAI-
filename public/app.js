@@ -7,12 +7,19 @@
 
 const $ = (id) => document.getElementById(id);
 
+function loadExperiments() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('alabRuns') || '[]');
+        return Array.isArray(saved) ? saved.filter((item) => item && typeof item === 'object') : [];
+    } catch {
+        return [];
+    }
+}
+
 const S = {
     place: null,
     air: null,
-    experiments: JSON.parse(
-        localStorage.getItem('alabRuns') || '[]'
-    )
+    experiments: loadExperiments()
 };
 
 const tabs = [
@@ -79,12 +86,13 @@ $('menu').onclick = () => {
 
 async function api(url, options) {
     const response = await fetch(url, options);
-    const data = await response.json();
-
-    if (!response.ok) {
-        throw Error(data.error || `HTTP ${response.status}`);
+    let data;
+    try {
+        data = await response.json();
+    } catch {
+        throw Error('The server returned an invalid response. Please try again.');
     }
-
+    if (!response.ok) throw Error(data.error || `HTTP ${response.status}`);
     return data;
 }
 
@@ -195,7 +203,7 @@ function chart(values) {
     canvas.width = width * ratio;
     canvas.height = height * ratio;
 
-    context.scale(ratio, ratio);
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
 
     values = values.slice(0, 24).filter(Number.isFinite);
@@ -326,9 +334,11 @@ function plan() {
         !Number.isInteger(household) ||
         household < 1 ||
         household > 20 ||
+        !Number.isFinite(room) ||
         room < 5 ||
         room > 1000 ||
-        (indoor !== null && indoor < 0)
+        (indoor !== null && (!Number.isFinite(indoor) || indoor < 0)) ||
+        !Number.isFinite(pm)
     ) {
         return toast('Check household inputs');
     }
@@ -397,22 +407,28 @@ function plan() {
         ]);
     }
 
-    $('planout').innerHTML = actions.map((item, index) => `
-        <article>
-            <small>ACTION ${index + 1}</small>
-            <h3>${item[0]}</h3>
-            <p>${item[1]}</p>
-        </article>
-    `).join('') + `
-        <article>
-            Location ${S.place.name};
-            household ${household};
-            room ${room} m³.
-            Outdoor PM2.5 ${Number(pm).toFixed(1)} µg/m³
-            (CAMS model estimate).
-            <small>Educational guidance, not medical advice.</small>
-        </article>
-    `;
+    const planOutput = $('planout');
+    planOutput.replaceChildren();
+    actions.forEach((item, index) => {
+        const article = document.createElement('article');
+        const label = document.createElement('small');
+        const heading = document.createElement('h3');
+        const description = document.createElement('p');
+        label.textContent = `ACTION ${index + 1}`;
+        heading.textContent = item[0];
+        description.textContent = item[1];
+        article.append(label, heading, description);
+        planOutput.append(article);
+    });
+    const summary = document.createElement('article');
+    const summaryText = document.createElement('p');
+    const disclaimer = document.createElement('small');
+    summaryText.textContent =
+        `Location ${S.place.name}; household ${household}; room ${room} m³. ` +
+        `Outdoor PM2.5 ${pm.toFixed(1)} µg/m³ (CAMS model estimate).`;
+    disclaimer.textContent = 'Educational guidance, not medical advice.';
+    summary.append(summaryText, disclaimer);
+    planOutput.append(summary);
 
     S.context = {
         location: S.place.name,
@@ -503,36 +519,42 @@ function sim() {
 // ==========================================
 
 function save() {
-    localStorage.setItem(
-        'alabRuns',
-        JSON.stringify(S.experiments)
-    );
+    try {
+        localStorage.setItem('alabRuns', JSON.stringify(S.experiments));
+        return true;
+    } catch {
+        toast('Could not save experiments. Browser storage may be full or disabled.');
+        return false;
+    }
 }
 
 function renderHistory() {
-    $('history').innerHTML = S.experiments.length
-        ? S.experiments.map((experiment, index) => `
-            <article>
-                Simulation ·
-                ${new Date(experiment.date).toLocaleString()}
-                <br>
-                Final PM2.5:
-                ${experiment.ct.toFixed(2)} µg/m³
-
-                <button data-del="${index}">
-                    Delete
-                </button>
-            </article>
-        `).join('')
-        : '<p>No experiments saved.</p>';
-
-    document.querySelectorAll('[data-del]').forEach((button) => {
-        button.onclick = () => {
-            S.experiments.splice(Number(button.dataset.del), 1);
-
+    const history = $('history');
+    history.replaceChildren();
+    if (!S.experiments.length) {
+        const empty = document.createElement('p');
+        empty.textContent = 'No experiments saved.';
+        history.append(empty);
+        return;
+    }
+    S.experiments.forEach((experiment, index) => {
+        const article = document.createElement('article');
+        const details = document.createElement('p');
+        const remove = document.createElement('button');
+        const timestamp = Date.parse(experiment.date);
+        const concentration = Number(experiment.ct);
+        const dateText = Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : 'Date unavailable';
+        const concentrationText = Number.isFinite(concentration) ? concentration.toFixed(2) : 'Unavailable';
+        details.textContent = `Simulation · ${dateText} · Final PM2.5: ${concentrationText} µg/m³`;
+        remove.type = 'button';
+        remove.textContent = 'Delete';
+        remove.addEventListener('click', () => {
+            S.experiments.splice(index, 1);
             save();
             renderHistory();
-        };
+        });
+        article.append(details, remove);
+        history.append(article);
     });
 }
 
@@ -576,9 +598,15 @@ function csv() {
         ])
     ];
 
+    const escapeCell = (value) => {
+        if (value === null || value === undefined) return '';
+        let text = String(value);
+        if (/^[\\s]*[=+@\\-]/.test(text)) text = "'" + text;
+        return '"' + text.replace(/"/g, '""') + '"';
+    };
     const blob = new Blob(
-        [rows.map((row) => row.join(',')).join('\n')],
-        { type: 'text/csv' }
+        [rows.map((row) => row.map(escapeCell).join(',')).join('\\r\\n')],
+        { type: 'text/csv;charset=utf-8' }
     );
 
     const link = document.createElement('a');
@@ -708,17 +736,15 @@ async function status() {
 // ==========================================
 
 $('compare').onclick = () => {
-    const km = +$('km').value;
-    const days = +$('days').value;
-    const factor = +$('ef').value;
+    const km = $('km').value.trim() === '' ? NaN : Number($('km').value);
+    const days = $('days').value.trim() === '' ? NaN : Number($('days').value);
+    const factor = $('ef').value.trim() === '' ? NaN : Number($('ef').value);
     const mode = $('mode').value;
-
     if (
-        km < 0 ||
-        km > 200 ||
-        days < 0 ||
-        days > 7 ||
-        factor < 0
+        !Number.isFinite(km) || km < 0 || km > 200 ||
+        !Number.isInteger(days) || days < 0 || days > 7 ||
+        !Number.isFinite(factor) || factor < 0 ||
+        !['private', 'carpool', 'public', 'walk', 'home'].includes(mode)
     ) {
         return toast('Check commute values');
     }
