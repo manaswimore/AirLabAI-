@@ -57,11 +57,21 @@
             t90AbsoluteMinutes = -Math.log(ratio) / K * 60;
         }
 
+        const sampleCount = 25;
+        const timeSeries = Array.from({ length: sampleCount }, (_, index) => {
+            const time = t * index / (sampleCount - 1);
+            return {
+                time,
+                concentration: steadyState + (C0 - steadyState) * Math.exp(-K * time)
+            };
+        });
+
         return {
             A,
             K,
             steadyState,
             concentration,
+            timeSeries,
             t90SteadyStateMinutes,
             t90AbsoluteMinutes
         };
