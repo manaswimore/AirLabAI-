@@ -608,6 +608,14 @@ async function ask() {
 
     $('question').value = '';
     $('ask').disabled = true;
+    const originalButtonText = $('ask').textContent;
+    $('ask').textContent = 'Thinking…';
+
+    const thinkingMessage = document.createElement('p');
+    thinkingMessage.className = 'bubble message assistant-message';
+    thinkingMessage.textContent = 'AirLab AI is checking your question…';
+    $('chat').append(thinkingMessage);
+    $('chat').scrollTop = $('chat').scrollHeight;
 
     try {
         const data = await api('/api/chat', {
@@ -627,6 +635,7 @@ async function ask() {
 
         const assistantMessage = document.createElement('p');
 
+        thinkingMessage.remove();
         assistantMessage.className =
             'bubble message assistant-message';
 
@@ -641,6 +650,7 @@ async function ask() {
         $('chat').scrollTop = $('chat').scrollHeight;
 
     } catch (error) {
+        thinkingMessage.remove();
         const errorMessage = document.createElement('p');
 
         errorMessage.className =
@@ -656,6 +666,7 @@ async function ask() {
 
     } finally {
         $('ask').disabled = false;
+        $('ask').textContent = originalButtonText;
     }
 }
 
