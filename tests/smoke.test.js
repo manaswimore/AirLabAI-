@@ -187,4 +187,24 @@ check(!/\\nstatus\\(\\);\\s*\\nsearch\\(\\);\\s*$/.test(app), 'Initial page load
 check(app.includes("name === 'assistant' && !S.statusChecked"), 'Gemini status is checked only when assistant tab opens');
 check(app.includes("if (S.statusChecked) return;"), 'Gemini status check is not repeated unnecessarily');
 
+check(app.includes('function loadExperiments()'), 'safe storage check');
+
+check(app.includes('Number.isFinite(room)'), 'room validation check');
+
+check(app.includes('Number.isFinite(indoor)'), 'indoor validation check');
+
+check(app.includes('!Number.isFinite(km)'), 'mobility validation check');
+
+check(app.includes('history.replaceChildren()'), 'safe history check');
+
+check(app.includes('escapeCell'), 'CSV escaping check');
+
+check(server.includes('upstreamInFlight'), 'in-flight request deduplication check');
+
+check(server.includes('const retryableStatuses = [500, 502, 503, 504]'), '429 is not retried check');
+
+check(server.includes('req.resume();'), 'oversized body drain check');
+
+check(server.includes('requestHits.size > 1000'), 'rate limiter cleanup check');
+
 console.log('AirLab tests passed: ' + assertions + ' assertions.');
