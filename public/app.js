@@ -686,7 +686,7 @@ async function status() {
                 'Key present; authentication is confirmed only after a successful response. ' +
                 'Primary: ' + data.geminiModel +
                 ' · Fallback: ' + data.geminiFallbackModel +
-                ' · Automatic retry enabled.'
+                ' · Fast response mode with fallback enabled.'
             )
             : 'No Gemini key configured on the server.';
 
