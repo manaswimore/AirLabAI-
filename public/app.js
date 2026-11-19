@@ -107,7 +107,14 @@ async function search() {
             encodeURIComponent($('city').value)
         );
 
-        $('places').innerHTML = '';
+        $('places').replaceChildren();
+
+        if (!Array.isArray(data.results) || data.results.length === 0) {
+            const message = document.createElement('p');
+            message.textContent = 'No matching place found. Check the spelling or try a nearby city.';
+            $('places').append(message);
+            return;
+        }
 
         data.results.forEach((place) => {
             const button = document.createElement('button');
@@ -330,17 +337,20 @@ function plan() {
     const household = Number($('hh').value);
     const room = Number($('volume').value);
 
-    if (
-        !Number.isInteger(household) ||
-        household < 1 ||
-        household > 20 ||
-        !Number.isFinite(room) ||
-        room < 5 ||
-        room > 1000 ||
-        (indoor !== null && (!Number.isFinite(indoor) || indoor < 0)) ||
-        !Number.isFinite(pm)
-    ) {
-        return toast('Check household inputs');
+    const planOutput = $('planout');
+    planOutput.replaceChildren();
+
+    if (!Number.isInteger(household) || household < 1 || household > 20) {
+        return toast('Household size must be a whole number from 1 to 20.');
+    }
+    if (!Number.isFinite(room) || room < 5 || room > 1000) {
+        return toast('Room volume must be between 5 and 1,000 m³.');
+    }
+    if (indoor !== null && (!Number.isFinite(indoor) || indoor < 0)) {
+        return toast('Indoor PM2.5 must be zero or a positive number.');
+    }
+    if (!Number.isFinite(pm)) {
+        return toast('PM2.5 data is unavailable for this location. Choose another location.');
     }
 
     const actions = [];
@@ -407,8 +417,6 @@ function plan() {
         ]);
     }
 
-    const planOutput = $('planout');
-    planOutput.replaceChildren();
     actions.forEach((item, index) => {
         const article = document.createElement('article');
         const label = document.createElement('small');
@@ -605,7 +613,7 @@ function csv() {
         return '"' + text.replace(/"/g, '""') + '"';
     };
     const blob = new Blob(
-        [rows.map((row) => row.map(escapeCell).join(',')).join('\\r\\n')],
+        [rows.map((row) => row.map(escapeCell).join(',')).join('\r\n')],
         { type: 'text/csv;charset=utf-8' }
     );
 
@@ -740,13 +748,19 @@ $('compare').onclick = () => {
     const days = $('days').value.trim() === '' ? NaN : Number($('days').value);
     const factor = $('ef').value.trim() === '' ? NaN : Number($('ef').value);
     const mode = $('mode').value;
-    if (
-        !Number.isFinite(km) || km < 0 || km > 200 ||
-        !Number.isInteger(days) || days < 0 || days > 7 ||
-        !Number.isFinite(factor) || factor < 0 ||
-        !['private', 'carpool', 'public', 'walk', 'home'].includes(mode)
-    ) {
-        return toast('Check commute values');
+    $('mobout').replaceChildren();
+
+    if (!Number.isFinite(km) || km <= 0 || km > 200) {
+        return toast('One-way commute distance must be greater than 0 and at most 200 km.');
+    }
+    if (!Number.isInteger(days) || days < 0 || days > 7) {
+        return toast('Commute days must be a whole number from 0 to 7 per week.');
+    }
+    if (!Number.isFinite(factor) || factor < 0 || factor > 5) {
+        return toast('Emission factor must be between 0 and 5 kg CO₂ per km.');
+    }
+    if (!['private', 'carpool', 'public', 'walk', 'home'].includes(mode)) {
+        return toast('Choose a valid commute mode.');
     }
 
     const avoided =
