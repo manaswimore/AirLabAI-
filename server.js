@@ -165,7 +165,7 @@ function getJson(url) {
             }
         );
 
-        request.setTimeout(15000, () => {
+        request.setTimeout(8000, () => {
             request.destroy(
                 Error('Upstream request timed out.')
             );
@@ -173,6 +173,33 @@ function getJson(url) {
 
         request.on('error', reject);
     });
+}
+
+ 
+// Cache successful upstream responses to avoid repeating slow external calls.
+const upstreamCache = new Map();
+
+async function getJsonCached(url, ttlMs) {
+    const now = Date.now();
+    const cached = upstreamCache.get(url);
+
+    if (cached && cached.expiresAt > now) {
+        return cached.data;
+    }
+
+    const data = await getJson(url);
+    upstreamCache.set(url, {
+        data,
+        expiresAt: now + ttlMs
+    });
+
+    // Keep the cache bounded for long-running deployments.
+    if (upstreamCache.size > 100) {
+        const oldestKey = upstreamCache.keys().next().value;
+        upstreamCache.delete(oldestKey);
+    }
+
+    return data;
 }
 
 // ==========================================
@@ -439,8 +466,9 @@ async function route(req, res) {
                 format: 'json'
             });
 
-            const data = await getJson(
-                `https://geocoding-api.open-meteo.com/v1/search?${params}`
+            const data = await getJsonCached(
+                `https://geocoding-api.open-meteo.com/v1/search?${params}`,
+                24 * 60 * 60 * 1000
             );
 
             return send(res, 200, {
@@ -502,8 +530,9 @@ async function route(req, res) {
                 timezone: 'auto'
             });
 
-            const data = await getJson(
-                `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`
+            const data = await getJsonCached(
+                `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`,
+                10 * 60 * 1000
             );
 
             return send(res, 200, {
