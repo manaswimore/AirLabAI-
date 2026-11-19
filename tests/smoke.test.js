@@ -89,6 +89,90 @@ check(Math.abs(noRemovalWithSource.concentration - 50) < 1e-10, 'No-removal sour
 const equilibrium = calculate({ ...base, C0: normal.steadyState, t: 10 });
 check(Math.abs(equilibrium.concentration - normal.steadyState) < 1e-10, 'Steady-state initial condition remains at equilibrium');
 
+function checkClose(actual, expected, tolerance, message) {
+    check(
+        Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance,
+        message
+    );
+}
+
+// Numerical invariants and boundary behaviour.
+const fromAbove = calculate({ ...base, C0: normal.steadyState + 20, t: 1 });
+check(
+    fromAbove.concentration < normal.steadyState + 20 &&
+    fromAbove.concentration > normal.steadyState,
+    'Concentration approaches steady state from above without crossing it'
+);
+
+const fromBelow = calculate({ ...base, C0: normal.steadyState / 2, t: 1 });
+check(
+    fromBelow.concentration > normal.steadyState / 2 &&
+    fromBelow.concentration < normal.steadyState,
+    'Concentration approaches steady state from below without crossing it'
+);
+
+const approachAtT90 = calculate({
+    ...base,
+    C0: normal.steadyState + 20,
+    t: Math.log(10) / normal.K
+});
+checkClose(
+    approachAtT90.concentration,
+    normal.steadyState + 2,
+    1e-9,
+    't90 steady-state time leaves ten percent of initial excess'
+);
+
+const clearToZero = calculate({
+    C0: 100, Co: 0, V: 50, lambda: 0,
+    P: 0, k: 1, CADR: 0, source: 0, t: Math.log(10)
+});
+checkClose(
+    clearToZero.concentration,
+    10,
+    1e-9,
+    'Absolute t90 calculation matches ten percent remaining'
+);
+checkClose(
+    clearToZero.t90AbsoluteMinutes,
+    Math.log(10) * 60,
+    1e-9,
+    'Absolute t90 is reported in minutes'
+);
+
+const longRun = calculate({ ...base, t: 1000 });
+checkClose(
+    longRun.concentration,
+    normal.steadyState,
+    1e-8,
+    'Long simulation converges to steady state'
+);
+
+const zeroInputs = calculate({
+    C0: 0, Co: 0, V: 25, lambda: 0,
+    P: 0, k: 0.5, CADR: 0, source: 0, t: 10
+});
+check(zeroInputs.concentration === 0, 'Zero initial and input concentration remains zero');
+check(zeroInputs.steadyState === 0, 'Zero-input case has zero steady state');
+check(zeroInputs.t90AbsoluteMinutes === null, 'Absolute t90 is unavailable when initial concentration is zero');
+
+const noOutdoorPenetration = calculate({
+    C0: 0, Co: 100, V: 50, lambda: 1,
+    P: 0, k: 0, CADR: 0, source: 0, t: 1
+});
+check(noOutdoorPenetration.steadyState === 0, 'Zero penetration prevents outdoor particle contribution');
+
+assert.throws(() => calculate(null), /inputs are required/, 'Null input is rejected');
+assert.throws(() => calculate({ ...base, C0: '55' }), /finite numbers/, 'Numeric strings are rejected instead of coerced');
+assert.throws(() => calculate({ ...base, Co: -1 }), /valid ranges/, 'Negative outdoor concentration is rejected');
+assert.throws(() => calculate({ ...base, lambda: -0.1 }), /valid ranges/, 'Negative air-change rate is rejected');
+assert.throws(() => calculate({ ...base, k: -0.1 }), /valid ranges/, 'Negative deposition rate is rejected');
+assert.throws(() => calculate({ ...base, CADR: -1 }), /valid ranges/, 'Negative clean-air delivery rate is rejected');
+assert.throws(() => calculate({ ...base, source: -1 }), /valid ranges/, 'Negative indoor source rate is rejected');
+assert.throws(() => calculate({ ...base, C0: Infinity }), /finite numbers/, 'Infinite concentration is rejected');
+assert.throws(() => calculate({ ...base, P: -0.1 }), /valid ranges/, 'Negative penetration is rejected');
+assert.throws(() => calculate({ ...base, V: -1 }), /valid ranges/, 'Negative room volume is rejected');
+
 assert.throws(() => calculate({ ...base, V: 0 }), /valid ranges/, 'Zero room volume is rejected');
 assert.throws(() => calculate({ ...base, P: 1.2 }), /valid ranges/, 'Penetration above one is rejected');
 assert.throws(() => calculate({ ...base, t: -1 }), /valid ranges/, 'Negative duration is rejected');
