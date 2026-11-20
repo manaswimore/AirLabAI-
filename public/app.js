@@ -164,7 +164,7 @@ async function load(place) {
         const data = await api(`/api/air-quality?lat=${place.latitude}&lon=${place.longitude}`);
         if (requestId !== S.airRequest) return;
         const current=data?.current, latitude=Number(data?.latitude), longitude=Number(data?.longitude);
-        if(!current||!Number.isFinite(latitude)||!Number.isFinite(longitude)||!Number.isFinite(current.pm2_5)||
+        if(!current||!Number.isFinite(latitude)||!Number.isFinite(longitude)||!Number.isFinite(current.pm2_5)||!Number.isFinite(Date.parse(current.time))||
             !Array.isArray(data.hourly?.time)||!Array.isArray(data.hourly?.pm2_5)||data.hourly.time.length!==data.hourly.pm2_5.length)
             throw Error('Air-quality data is incomplete or unavailable for this location. Please try again.');
         S.place=place; S.air=data; $('status').textContent='CAMS model data loaded';
@@ -213,9 +213,10 @@ function plan() {
 
     const pm = S.air.current?.pm2_5;
 
-    const indoor = $('indoor').value === ''
+    const indoorRaw = $('indoor').value;
+    const indoor = indoorRaw === '' && !$('indoor').validity.badInput
         ? null
-        : Number($('indoor').value);
+        : Number(indoorRaw);
 
     const household = Number($('hh').value);
     const room = Number($('volume').value);
@@ -229,7 +230,7 @@ function plan() {
     if (!Number.isFinite(room) || room < 5 || room > 1000) {
         return toast('Room volume must be between 5 and 1,000 m³.');
     }
-    if (indoor !== null && (!Number.isFinite(indoor) || indoor < 0)) {
+    if ($('indoor').validity.badInput || (indoor !== null && (!Number.isFinite(indoor) || indoor < 0))) {
         return toast('Indoor PM2.5 must be zero or a positive number.');
     }
     if (!Number.isFinite(pm)) {
@@ -389,7 +390,7 @@ function sim() {
     };
 
     const formatMinutes = (value, unavailable) =>
-        value === null ? unavailable : value.toFixed(1) + ' min';
+        value === null ? unavailable : value > 0 && value < 0.05 ? '<0.1 min' : value.toFixed(1) + ' min';
     const steadyStateLabel = steadyState === null
         ? (result.equilibrium === 'non-unique' ? 'Any concentration (no net change)' : 'No finite steady state')
         : steadyState.toFixed(2) + ' µg/m³';
