@@ -159,6 +159,13 @@ async function search() {
 
 async function load(place) {
     const requestId = ++S.airRequest;
+    // A plan is tied to the location and PM2.5 value used when it was generated.
+    // Invalidate it immediately when another location is selected.
+    $('planout').replaceChildren();
+    const planNotice = document.createElement('p');
+    planNotice.textContent = 'Location changed or refreshed. Generate a new household plan after air-quality data loads.';
+    $('planout').append(planNotice);
+    S.context = null;
     clearAirDisplay('Loading model data…');
     try {
         const data = await api(`/api/air-quality?lat=${place.latitude}&lon=${place.longitude}`);
@@ -389,15 +396,21 @@ function sim() {
         ta: t90AbsoluteMinutes
     };
 
+    const formatNumber = (value, digits = 2) => {
+        if (!Number.isFinite(value)) return 'Unavailable';
+        return Math.abs(value) >= 1e6 || (value !== 0 && Math.abs(value) < 1e-4)
+            ? value.toExponential(3)
+            : value.toFixed(digits);
+    };
     const formatMinutes = (value, unavailable) =>
-        value === null ? unavailable : value > 0 && value < 0.05 ? '<0.1 min' : value.toFixed(1) + ' min';
+        value === null ? unavailable : value > 0 && value < 0.05 ? '<0.1 min' : formatNumber(value, 1) + ' min';
     const steadyStateLabel = steadyState === null
         ? (result.equilibrium === 'non-unique' ? 'Any concentration (no net change)' : 'No finite steady state')
-        : steadyState.toFixed(2) + ' µg/m³';
+        : formatNumber(steadyState) + ' µg/m³';
 
     $('simout').innerHTML = [
         ['Steady state', steadyStateLabel],
-        ['Final concentration', concentration.toFixed(2) + ' µg/m³'],
+        ['Final concentration', formatNumber(concentration) + ' µg/m³'],
         ['t90 approach to steady state', formatMinutes(t90SteadyStateMinutes, 'Not defined')],
         ['Absolute 90% clearance', formatMinutes(t90AbsoluteMinutes, 'Not reachable')]
     ].map((item) => `
@@ -415,7 +428,11 @@ function sim() {
         const row = document.createElement('tr');
         const time = document.createElement('td');
         const value = document.createElement('td');
-        time.textContent = Number(point.time).toFixed(inputs.t < 1 ? 3 : 1);
+        const interval = inputs.t / 24;
+        const timePrecision = interval > 0
+            ? Math.min(6, Math.max(1, Math.ceil(-Math.log10(interval)) + 1))
+            : 1;
+        time.textContent = Number(point.time).toFixed(timePrecision);
         value.textContent = Number(point.concentration).toFixed(2);
         row.append(time, value);
         body.append(row);
