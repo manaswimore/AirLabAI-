@@ -7,13 +7,33 @@
 
 const $ = (id) => document.getElementById(id);
 
+function loadExperiments() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('alabRuns') || '[]');
+        return Array.isArray(saved) ? saved.filter((item) => item && typeof item === 'object') : [];
+    } catch {
+        return [];
+    }
+}
+
 const S = {
-    place: null,
-    air: null,
-    experiments: JSON.parse(
-        localStorage.getItem('alabRuns') || '[]'
-    )
+    place: null, air: null, experiments: loadExperiments(),
+    searchRequest: 0, airRequest: 0
 };
+function clearAirDisplay(message) {
+    S.place = null; S.air = null;
+    $('status').textContent = message || 'Choose a location';
+    $('metrics').querySelectorAll('b').forEach(node => { node.textContent = '—'; });
+    $('insight').textContent = message || 'Choose a location to load the current model estimate.';
+    chart([], []);
+}
+function refreshExperiments() {
+    S.experiments = loadExperiments();
+    if ($('experiments').classList.contains('show')) renderHistory();
+}
+window.addEventListener('storage', event => {
+    if (event.key === 'alabRuns') refreshExperiments();
+});
 
 const tabs = [
     'overview',
@@ -58,6 +78,11 @@ function nav(name) {
     if (name === 'experiments') {
         renderHistory();
     }
+
+    // Check Gemini only when the user opens its tab, not during initial page load.
+    if (name === 'assistant' && !S.statusChecked) {
+        status();
+    }
 }
 
 document.querySelectorAll('nav button').forEach((button) => {
@@ -74,12 +99,13 @@ $('menu').onclick = () => {
 
 async function api(url, options) {
     const response = await fetch(url, options);
-    const data = await response.json();
-
-    if (!response.ok) {
-        throw Error(data.error || `HTTP ${response.status}`);
+    let data;
+    try {
+        data = await response.json();
+    } catch {
+        throw Error('The server returned an invalid response. Please try again.');
     }
-
+    if (!response.ok) throw Error(data.error || `HTTP ${response.status}`);
     return data;
 }
 
@@ -88,13 +114,26 @@ async function api(url, options) {
 // ==========================================
 
 async function search() {
+    const query = $('city').value.trim();
+    const requestId = ++S.searchRequest;
+    if (query.length < 2) {
+        $('places').replaceChildren();
+        const message = document.createElement('p');
+        message.textContent = 'Enter at least two characters to search.';
+        $('places').append(message);
+        return;
+    }
     try {
-        const data = await api(
-            '/api/geocode?q=' +
-            encodeURIComponent($('city').value)
-        );
+        const data = await api('/api/geocode?q=' + encodeURIComponent(query));
+        if (requestId !== S.searchRequest || $('city').value.trim() !== query) return;
+        $('places').replaceChildren();
 
-        $('places').innerHTML = '';
+        if (!Array.isArray(data.results) || data.results.length === 0) {
+            const message = document.createElement('p');
+            message.textContent = 'No matching place found. Check the spelling or try a nearby city.';
+            $('places').append(message);
+            return;
+        }
 
         data.results.forEach((place) => {
             const button = document.createElement('button');
@@ -110,7 +149,7 @@ async function search() {
             $('places').append(button);
         });
     } catch (error) {
-        toast(error.message);
+        if (requestId === S.searchRequest) toast(error.message);
     }
 }
 
@@ -119,58 +158,32 @@ async function search() {
 // ==========================================
 
 async function load(place) {
+    const requestId = ++S.airRequest;
+    // A plan is tied to the location and PM2.5 value used when it was generated.
+    // Invalidate it immediately when another location is selected.
+    $('planout').replaceChildren();
+    const planNotice = document.createElement('p');
+    planNotice.textContent = 'Location changed or refreshed. Generate a new household plan after air-quality data loads.';
+    $('planout').append(planNotice);
+    S.context = null;
+    clearAirDisplay('Loading model data…');
     try {
-        const data = await api(
-            `/api/air-quality?lat=${place.latitude}&lon=${place.longitude}`
-        );
-
-        S.place = place;
-        S.air = data;
-
-        $('status').textContent = 'CAMS model data loaded';
-
-        const current = data.current || {};
-
-        const pairs = [
-            ['PM2.5', current.pm2_5, 'µg/m³'],
-            ['PM10', current.pm10, 'µg/m³'],
-            ['US AQI', current.us_aqi, 'model index'],
-            ['NO₂', current.nitrogen_dioxide, 'µg/m³']
-        ];
-
-        $('metrics').innerHTML = pairs.map((item) => `
-            <div>
-                ${item[0]}
-                <b>
-                    ${Number.isFinite(item[1])
-                        ? item[1].toFixed(1)
-                        : '—'}
-                </b>
-                ${item[2]}
-            </div>
-        `).join('');
-
-        const pm = current.pm2_5;
-
-        $('insight').textContent = pm == null
-            ? 'PM2.5 unavailable.'
-            : pm <= 15
-                ? 'Relatively lower modelled particle level; continue checking local readings.'
-                : pm <= 35
-                    ? 'Elevated modelled particles; reduce exposure near traffic and compare indoor/outdoor readings.'
-                    : pm <= 55
-                        ? 'High modelled particles; reduce strenuous outdoor activity and protect indoor air.'
-                        : 'Very high modelled particles; reduce prolonged outdoor exertion and check official advisories.';
-
-        $('insight').textContent +=
-            ` Grid point ${data.latitude.toFixed(3)}, ` +
-            `${data.longitude.toFixed(3)}. ` +
-            'Model estimate, not station measurement.';
-
-        chart(data.hourly?.pm2_5 || []);
-
+        const data = await api(`/api/air-quality?lat=${place.latitude}&lon=${place.longitude}`);
+        if (requestId !== S.airRequest) return;
+        const current=data?.current, latitude=Number(data?.latitude), longitude=Number(data?.longitude);
+        if(!current||!Number.isFinite(latitude)||!Number.isFinite(longitude)||!Number.isFinite(current.pm2_5)||!Number.isFinite(Date.parse(current.time))||
+            !Array.isArray(data.hourly?.time)||!Array.isArray(data.hourly?.pm2_5)||data.hourly.time.length!==data.hourly.pm2_5.length)
+            throw Error('Air-quality data is incomplete or unavailable for this location. Please try again.');
+        S.place=place; S.air=data; $('status').textContent='CAMS model data loaded';
+        const pairs=[['PM2.5',current.pm2_5,'µg/m³'],['PM10',current.pm10,'µg/m³'],['US AQI',current.us_aqi,'model index'],['NO₂',current.nitrogen_dioxide,'µg/m³']];
+        $('metrics').innerHTML=pairs.map(item=>`<div>${item[0]}<b>${Number.isFinite(item[1])?item[1].toFixed(1):'—'}</b>${item[2]}</div>`).join('');
+        $('insight').textContent=current.pm2_5<=15?'Relatively lower modelled particle level; continue checking local readings.':current.pm2_5<=35?'Elevated modelled particles; reduce exposure near traffic and compare indoor/outdoor readings.':current.pm2_5<=55?'High modelled particles; reduce strenuous outdoor activity and protect indoor air.':'Very high modelled particles; reduce prolonged outdoor exertion and check official advisories.';
+        $('insight').textContent+=` Grid point ${latitude.toFixed(3)}, ${longitude.toFixed(3)}. `+'Model estimate, not station measurement. US AQI is a model index derived separately from pollutant concentration fields and may use a different averaging period than the current PM2.5 value.';
+        chart(data.hourly.time,data.hourly.pm2_5,data.current.time,current.pm2_5);
         toast('Model data loaded');
-    } catch (error) {
+    } catch(error) {
+        if(requestId!==S.airRequest)return;
+        clearAirDisplay('Air-quality data unavailable. Select the location again or try another city.');
         toast(error.message);
     }
 }
@@ -179,129 +192,26 @@ async function load(place) {
 // 6. PM2.5 CHART
 // ==========================================
 
-function chart(values) {
-    const canvas = $('chart');
-    const context = canvas.getContext('2d');
-
-    const width = canvas.clientWidth || 550;
-    const height = 190;
-    const ratio = window.devicePixelRatio || 1;
-
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
-
-    context.scale(ratio, ratio);
-    context.clearRect(0, 0, width, height);
-
-    values = values.slice(0, 24).filter(Number.isFinite);
-
-    if (!values.length) return;
-
-    const max = Math.max(10, ...values) * 1.15;
-
-    const left = 28;
-    const right = 12;
-    const top = 12;
-    const bottom = 25;
-
-    const plotHeight = height - top - bottom;
-    const plotWidth = width - left - right;
-
-    context.font = '10px DM Sans, sans-serif';
-    context.fillStyle = '#8c788d';
-    context.strokeStyle = 'rgba(181,143,175,.13)';
-    context.lineWidth = 1;
-
-    for (let i = 0; i <= 4; i++) {
-        const y = top + i * plotHeight / 4;
-
-        context.beginPath();
-        context.moveTo(left, y);
-        context.lineTo(width - right, y);
-        context.stroke();
-
-        context.fillText(
-            String(Math.round(max * (4 - i) / 4)),
-            2,
-            y + 3
-        );
+function chart(times, values, currentTime, currentValue) {
+    const canvas=$('chart'),ctx=canvas.getContext('2d'),w=canvas.clientWidth||550,h=190,dpr=window.devicePixelRatio||1;
+    canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+    const now=Date.parse(currentTime),series=[];
+    if(Number.isFinite(now)&&Number.isFinite(currentValue))series.push({time:now,value:currentValue});
+    if(Array.isArray(times)&&Array.isArray(values))for(let i=0;i<Math.min(times.length,values.length);i++){
+        const time=Date.parse(times[i]),value=values[i];
+        if(Number.isFinite(time)&&Number.isFinite(value)&&(!Number.isFinite(now)||time>now)&&(!Number.isFinite(now)||time<=now+86400000))series.push({time,value});
     }
-
-    context.fillText('Now', left, height - 5);
-    context.fillText('24h', width - right - 18, height - 5);
-
-    const points = values.map((value, index) => ({
-        x: left + index * plotWidth / Math.max(1, values.length - 1),
-        y: top + plotHeight - value / max * plotHeight
-    }));
-
-    if (!points.length) return;
-
-    // Gradient fill
-    const fill = context.createLinearGradient(
-        0,
-        top,
-        0,
-        height - bottom
-    );
-
-    fill.addColorStop(0, 'rgba(255,79,154,.25)');
-    fill.addColorStop(1, 'rgba(255,79,154,0)');
-
-    context.beginPath();
-
-    points.forEach((point, index) => {
-        if (index) {
-            context.lineTo(point.x, point.y);
-        } else {
-            context.moveTo(point.x, point.y);
-        }
-    });
-
-    context.lineTo(
-        points[points.length - 1].x,
-        height - bottom
-    );
-
-    context.lineTo(points[0].x, height - bottom);
-    context.closePath();
-
-    context.fillStyle = fill;
-    context.fill();
-
-    // Chart line
-    context.beginPath();
-
-    points.forEach((point, index) => {
-        if (index) {
-            context.lineTo(point.x, point.y);
-        } else {
-            context.moveTo(point.x, point.y);
-        }
-    });
-
-    context.strokeStyle = '#ff5ca8';
-    context.lineWidth = 2.7;
-    context.lineJoin = 'round';
-    context.lineCap = 'round';
-    context.shadowColor = 'rgba(255,79,154,.4)';
-    context.shadowBlur = 9;
-
-    context.stroke();
-    context.shadowBlur = 0;
-
-    // Last point
-    const last = points[points.length - 1];
-
-    context.beginPath();
-    context.arc(last.x, last.y, 3.5, 0, Math.PI * 2);
-    context.fillStyle = '#ffc0dc';
-    context.fill();
+    if(!series.length)return;series.sort((x,y)=>x.time-y.time);
+    const start=series[0].time,end=start+86400000,max=Math.max(10,...series.map(x=>x.value))*1.15,left=38,right=14,top=12,bottom=27,ph=h-top-bottom,pw=w-left-right;
+    ctx.font='12px DM Sans, sans-serif';ctx.fillStyle='#b5a4b4';ctx.strokeStyle='rgba(181,143,175,.18)';
+    for(let i=0;i<=4;i++){const y=top+i*ph/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillText(String(Math.round(max*(4-i)/4)),2,y+4);}
+    ctx.fillText('Now',left,h-6);ctx.fillText('24h',w-right-22,h-6);
+    const pts=series.map(x=>({x:left+Math.max(0,Math.min(1,(x.time-start)/(end-start)))*pw,y:top+ph-x.value/max*ph}));
+    const grad=ctx.createLinearGradient(0,top,0,h-bottom);grad.addColorStop(0,'rgba(255,79,154,.25)');grad.addColorStop(1,'rgba(255,79,154,0)');
+    ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.lineTo(pts[pts.length-1].x,h-bottom);ctx.lineTo(pts[0].x,h-bottom);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+    ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.strokeStyle='#ff5ca8';ctx.lineWidth=2.7;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
+    ctx.beginPath();ctx.arc(pts[0].x,pts[0].y,4,0,Math.PI*2);ctx.fillStyle='#ffc0dc';ctx.fill();
 }
-
-// ==========================================
-// 7. HOUSEHOLD ACTION PLAN
-// ==========================================
 
 function plan() {
     if (!S.air || !S.place) {
@@ -310,22 +220,28 @@ function plan() {
 
     const pm = S.air.current?.pm2_5;
 
-    const indoor = $('indoor').value === ''
+    const indoorRaw = $('indoor').value;
+    const indoor = indoorRaw === '' && !$('indoor').validity.badInput
         ? null
-        : Number($('indoor').value);
+        : Number(indoorRaw);
 
     const household = Number($('hh').value);
     const room = Number($('volume').value);
 
-    if (
-        !Number.isInteger(household) ||
-        household < 1 ||
-        household > 20 ||
-        room < 5 ||
-        room > 1000 ||
-        (indoor !== null && indoor < 0)
-    ) {
-        return toast('Check household inputs');
+    const planOutput = $('planout');
+    planOutput.replaceChildren();
+
+    if (!Number.isInteger(household) || household < 1 || household > 20) {
+        return toast('Household size must be a whole number from 1 to 20.');
+    }
+    if (!Number.isFinite(room) || room < 5 || room > 1000) {
+        return toast('Room volume must be between 5 and 1,000 m³.');
+    }
+    if ($('indoor').validity.badInput || (indoor !== null && (!Number.isFinite(indoor) || indoor < 0))) {
+        return toast('Indoor PM2.5 must be zero or a positive number.');
+    }
+    if (!Number.isFinite(pm)) {
+        return toast('PM2.5 data is unavailable for this location. Choose another location.');
     }
 
     const actions = [];
@@ -392,22 +308,26 @@ function plan() {
         ]);
     }
 
-    $('planout').innerHTML = actions.map((item, index) => `
-        <article>
-            <small>ACTION ${index + 1}</small>
-            <h3>${item[0]}</h3>
-            <p>${item[1]}</p>
-        </article>
-    `).join('') + `
-        <article>
-            Location ${S.place.name};
-            household ${household};
-            room ${room} m³.
-            Outdoor PM2.5 ${Number(pm).toFixed(1)} µg/m³
-            (CAMS model estimate).
-            <small>Educational guidance, not medical advice.</small>
-        </article>
-    `;
+    actions.forEach((item, index) => {
+        const article = document.createElement('article');
+        const label = document.createElement('small');
+        const heading = document.createElement('h3');
+        const description = document.createElement('p');
+        label.textContent = `ACTION ${index + 1}`;
+        heading.textContent = item[0];
+        description.textContent = item[1];
+        article.append(label, heading, description);
+        planOutput.append(article);
+    });
+    const summary = document.createElement('article');
+    const summaryText = document.createElement('p');
+    const disclaimer = document.createElement('small');
+    summaryText.textContent =
+        `Location ${S.place.name}; household ${household}; room ${room} m³. ` +
+        `Outdoor PM2.5 ${pm.toFixed(1)} µg/m³ (CAMS model estimate).`;
+    disclaimer.textContent = 'Educational guidance, not medical advice.';
+    summary.append(summaryText, disclaimer);
+    planOutput.append(summary);
 
     S.context = {
         location: S.place.name,
@@ -424,84 +344,75 @@ function plan() {
 // ==========================================
 
 function sim() {
-    const getValue = (id) => Number($(id).value);
-
-    const C0 = getValue('c0');
-    const Co = getValue('co');
-    const V = getValue('vol');
-    const lambda = getValue('ach');
-    const P = getValue('pen');
-    const k = getValue('dep');
-    const CADR = getValue('cadr');
-    const source = getValue('source');
-    const t = getValue('hours');
-
-    if (
-        [C0, Co, V, lambda, P, k, CADR, source, t]
-            .some((value) => !Number.isFinite(value)) ||
-        C0 < 0 ||
-        Co < 0 ||
-        V <= 0 ||
-        lambda < 0 ||
-        P < 0 ||
-        P > 1 ||
-        k < 0 ||
-        CADR < 0 ||
-        source < 0 ||
-        t <= 0
-    ) {
-        return toast('Invalid simulator input');
-    }
-
-    const A = P * lambda * Co + source / V;
-    const K = lambda + k + CADR / V;
-
-    const steadyState = K ? A / K : 0;
-
-    const concentration =
-        steadyState +
-        (C0 - steadyState) * Math.exp(-K * t);
-
-    const t90SteadyState = K
-        ? Math.log(10) / K * 60
-        : null;
-
-    const t90Absolute =
-        steadyState < 0.1 * C0 && C0 > steadyState
-            ? -Math.log(
-                (0.1 * C0 - steadyState) /
-                (C0 - steadyState)
-            ) / K * 60
-            : null;
-
-    const experiment = {
-        date: new Date().toISOString(),
-        C0,
-        Co,
-        V,
-        l: lambda,
-        P,
-        k,
-        cad: CADR,
-        src: source,
-        t,
-        ss: steadyState,
-        ct: concentration,
-        tss: t90SteadyState,
-        ta: t90Absolute
+    const getValue = (id) => {
+        const raw = $(id).value.trim();
+        return raw === '' ? NaN : Number(raw);
     };
 
+    const inputs = {
+        C0: getValue('c0'),
+        Co: getValue('co'),
+        V: getValue('vol'),
+        lambda: getValue('ach'),
+        P: getValue('pen'),
+        k: getValue('dep'),
+        CADR: getValue('cadr'),
+        source: getValue('source'),
+        t: getValue('hours')
+    };
+
+    let result;
+
+    try {
+        result = AirLabSimulation.calculateIndoorPM25(inputs);
+    } catch (error) {
+        $('simout').replaceChildren();
+        $('simseries').replaceChildren();
+        return toast(error.message || 'Invalid simulator input');
+    }
+
+    const {
+        steadyState,
+        concentration,
+        t90SteadyStateMinutes,
+        t90AbsoluteMinutes
+    } = result;
+
+    const experiment = {
+        id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2),
+        date: new Date().toISOString(),
+        C0: inputs.C0,
+        Co: inputs.Co,
+        V: inputs.V,
+        l: inputs.lambda,
+        P: inputs.P,
+        k: inputs.k,
+        cad: inputs.CADR,
+        src: inputs.source,
+        t: inputs.t,
+        ss: steadyState,
+        ct: concentration,
+        tss: t90SteadyStateMinutes,
+        ta: t90AbsoluteMinutes
+    };
+
+    const formatNumber = (value, digits = 2) => {
+        if (!Number.isFinite(value)) return 'Unavailable';
+        return Math.abs(value) >= 1e6 || (value !== 0 && Math.abs(value) < 1e-4)
+            ? value.toExponential(3)
+            : value.toFixed(digits);
+    };
+    const formatMinutes = (value, unavailable) =>
+        value === null ? unavailable : value > 0 && value < 0.05 ? '<0.1 min' : formatNumber(value, 1) + ' min';
+    const steadyStateLabel = steadyState === null
+        ? (result.equilibrium === 'non-unique' ? 'Any concentration (no net change)' : 'No finite steady state')
+        : formatNumber(steadyState) + ' µg/m³';
+
     $('simout').innerHTML = [
-        ['Steady state', steadyState.toFixed(2)],
-        ['Final concentration', concentration.toFixed(2)],
-        [
-            't90 approach to steady state',
-            t90SteadyState?.toFixed(1) + ' min' || 'Undefined'
-        ],
-        [
-            'Absolute 90% clearance',
-            t90Absolute?.toFixed(1) + ' min' || 'Not reachable'
-        ]
+        ['Steady state', steadyStateLabel],
+        ['Final concentration', formatNumber(concentration) + ' µg/m³'],
+        ['t90 approach to steady state', formatMinutes(t90SteadyStateMinutes, 'Not defined')],
+        ['Absolute 90% clearance', formatMinutes(t90AbsoluteMinutes, 'Not reachable')]
     ].map((item) => `
         <div>
             ${item[0]}
@@ -509,11 +420,30 @@ function sim() {
         </div>
     `).join('');
 
+    const series = result.timeSeries || [];
+    const table = document.createElement('table');
+    table.innerHTML = '<thead><tr><th>Time (h)</th><th>PM2.5 (µg/m³)</th></tr></thead>';
+    const body = document.createElement('tbody');
+    series.forEach((point) => {
+        const row = document.createElement('tr');
+        const time = document.createElement('td');
+        const value = document.createElement('td');
+        const interval = inputs.t / 24;
+        const timePrecision = interval > 0
+            ? Math.min(6, Math.max(1, Math.ceil(-Math.log10(interval)) + 1))
+            : 1;
+        time.textContent = Number(point.time).toFixed(timePrecision);
+        value.textContent = Number(point.concentration).toFixed(2);
+        row.append(time, value);
+        body.append(row);
+    });
+    table.append(body);
+    $('simseries').replaceChildren(table);
+
+    S.experiments = loadExperiments();
     S.experiments.unshift(experiment);
-
-    save();
-
-    toast('Experiment saved');
+    if (S.experiments.length > 100) S.experiments.length = 100;
+    if (save()) toast('Experiment saved');
 }
 
 // ==========================================
@@ -521,36 +451,42 @@ function sim() {
 // ==========================================
 
 function save() {
-    localStorage.setItem(
-        'alabRuns',
-        JSON.stringify(S.experiments)
-    );
+    try {
+        localStorage.setItem('alabRuns', JSON.stringify(S.experiments));
+        return true;
+    } catch {
+        toast('Could not save experiments. Browser storage may be full or disabled.');
+        return false;
+    }
 }
 
 function renderHistory() {
-    $('history').innerHTML = S.experiments.length
-        ? S.experiments.map((experiment, index) => `
-            <article>
-                Simulation ·
-                ${new Date(experiment.date).toLocaleString()}
-                <br>
-                Final PM2.5:
-                ${experiment.ct.toFixed(2)} µg/m³
-
-                <button data-del="${index}">
-                    Delete
-                </button>
-            </article>
-        `).join('')
-        : '<p>No experiments saved.</p>';
-
-    document.querySelectorAll('[data-del]').forEach((button) => {
-        button.onclick = () => {
-            S.experiments.splice(Number(button.dataset.del), 1);
-
+    const history = $('history');
+    history.replaceChildren();
+    if (!S.experiments.length) {
+        const empty = document.createElement('p');
+        empty.textContent = 'No experiments saved.';
+        history.append(empty);
+        return;
+    }
+    S.experiments.forEach((experiment, index) => {
+        const article = document.createElement('article');
+        const details = document.createElement('p');
+        const remove = document.createElement('button');
+        const timestamp = Date.parse(experiment.date);
+        const concentration = Number(experiment.ct);
+        const dateText = Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : 'Date unavailable';
+        const concentrationText = Number.isFinite(concentration) ? concentration.toFixed(2) : 'Unavailable';
+        details.textContent = `Simulation · ${dateText} · Final PM2.5: ${concentrationText} µg/m³`;
+        remove.type = 'button';
+        remove.textContent = 'Delete';
+        remove.addEventListener('click', () => {
+            S.experiments = loadExperiments().filter(item => item.id ? item.id !== experiment.id : item !== experiment);
             save();
             renderHistory();
-        };
+        });
+        article.append(details, remove);
+        history.append(article);
     });
 }
 
@@ -594,9 +530,15 @@ function csv() {
         ])
     ];
 
+    const escapeCell = (value) => {
+        if (value === null || value === undefined) return '';
+        let text = String(value);
+        if (/^[\\s]*[=+@\\-]/.test(text)) text = "'" + text;
+        return '"' + text.replace(/"/g, '""') + '"';
+    };
     const blob = new Blob(
-        [rows.map((row) => row.join(',')).join('\n')],
-        { type: 'text/csv' }
+        [rows.map((row) => row.map(escapeCell).join(',')).join('\r\n')],
+        { type: 'text/csv;charset=utf-8' }
     );
 
     const link = document.createElement('a');
@@ -626,6 +568,14 @@ async function ask() {
 
     $('question').value = '';
     $('ask').disabled = true;
+    const originalButtonText = $('ask').textContent;
+    $('ask').textContent = 'Thinking…';
+
+    const thinkingMessage = document.createElement('p');
+    thinkingMessage.className = 'bubble message assistant-message';
+    thinkingMessage.textContent = 'AirLab AI is checking your question…';
+    $('chat').append(thinkingMessage);
+    $('chat').scrollTop = $('chat').scrollHeight;
 
     try {
         const data = await api('/api/chat', {
@@ -645,6 +595,7 @@ async function ask() {
 
         const assistantMessage = document.createElement('p');
 
+        thinkingMessage.remove();
         assistantMessage.className =
             'bubble message assistant-message';
 
@@ -659,21 +610,31 @@ async function ask() {
         $('chat').scrollTop = $('chat').scrollHeight;
 
     } catch (error) {
+        thinkingMessage.remove();
         const errorMessage = document.createElement('p');
 
         errorMessage.className =
             'bubble message error-message';
 
-        errorMessage.textContent =
-            'Live request failed: ' +
-            error.message +
-            ' (No mock answer is shown as live.)';
+        const isQuotaError =
+            /429|quota exceeded|rate limit|too many requests/i.test(
+                error.message || ''
+            );
+
+        errorMessage.textContent = isQuotaError
+            ? 'Daily AI limit reached. Gemini is temporarily unavailable ' +
+              'because today\'s API quota has been exhausted. Please try again ' +
+              'after the quota resets. Other AirLab features remain available.'
+            : 'Live request failed: ' +
+              error.message +
+              ' (No mock answer is shown as live.)';
 
         $('chat').append(errorMessage);
         $('chat').scrollTop = $('chat').scrollHeight;
 
     } finally {
         $('ask').disabled = false;
+        $('ask').textContent = originalButtonText;
     }
 }
 
@@ -682,6 +643,9 @@ async function ask() {
 // ==========================================
 
 async function status() {
+    if (S.statusChecked) return;
+    S.statusChecked = true;
+
     try {
         const data = await api('/api/status');
 
@@ -690,7 +654,7 @@ async function status() {
                 'Key present; authentication is confirmed only after a successful response. ' +
                 'Primary: ' + data.geminiModel +
                 ' · Fallback: ' + data.geminiFallbackModel +
-                ' · Automatic retry enabled.'
+                ' · Fast response mode with fallback enabled.'
             )
             : 'No Gemini key configured on the server.';
 
@@ -704,33 +668,38 @@ async function status() {
 // ==========================================
 
 $('compare').onclick = () => {
-    const km = +$('km').value;
-    const days = +$('days').value;
-    const factor = +$('ef').value;
+    const km = $('km').value.trim() === '' ? NaN : Number($('km').value);
+    const days = $('days').value.trim() === '' ? NaN : Number($('days').value);
+    const factor = $('ef').value.trim() === '' ? NaN : Number($('ef').value);
     const mode = $('mode').value;
+    $('mobout').replaceChildren();
 
-    if (
-        km < 0 ||
-        km > 200 ||
-        days < 0 ||
-        days > 7 ||
-        factor < 0
-    ) {
-        return toast('Check commute values');
+    if (!Number.isFinite(km) || km <= 0 || km > 200) {
+        return toast('One-way commute distance must be greater than 0 and at most 200 km.');
+    }
+    if (!Number.isInteger(days) || days < 0 || days > 7) {
+        return toast('Commute days must be a whole number from 0 to 7 per week.');
+    }
+    if (!Number.isFinite(factor) || factor < 0 || factor > 5) {
+        return toast('Emission factor must be between 0 and 5 kg CO₂ per km.');
+    }
+    if (!['private', 'carpool', 'public', 'walk', 'home'].includes(mode)) {
+        return toast('Choose a valid commute mode.');
     }
 
-    const avoided =
-        km * 2 * days * 52 *
-        (mode === 'private'
-            ? 1
-            : mode === 'carpool'
-                ? 0.5
-                : 0
-        );
+    const annualSoloKm = km * 2 * days * 52;
+    const avoidedShare = {
+        private: 0,
+        carpool: 0.5,
+        public: 1,
+        walk: 1,
+        home: 1
+    }[mode];
+    const avoided = annualSoloKm * avoidedShare;
 
     $('mobout').innerHTML = `
         <article>
-            Illustrative solo vehicle distance avoided:
+            Illustrative solo-vehicle distance avoided versus solo driving:
             <b>${Math.round(avoided)} km/year</b>
             <br>
 
@@ -782,8 +751,8 @@ $('csv').onclick = csv;
 $('clear').onclick = () => {
     if (confirm('Clear experiment history?')) {
         S.experiments = [];
-
-        save();
+        try { localStorage.setItem('alabRuns', '[]'); }
+        catch { toast('Could not clear experiment history. Browser storage may be unavailable.'); }
         renderHistory();
     }
 };
@@ -792,5 +761,5 @@ $('clear').onclick = () => {
 // 15. INITIALIZE APPLICATION
 // ==========================================
 
-status();
-search();
+// Keep first paint independent of external APIs. City search and Gemini
+// status checks run only after the user explicitly requests them.

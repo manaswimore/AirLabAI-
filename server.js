@@ -165,7 +165,7 @@ function getJson(url) {
             }
         );
 
-        request.setTimeout(15000, () => {
+        request.setTimeout(12000, () => {
             request.destroy(
                 Error('Upstream request timed out.')
             );
@@ -173,6 +173,57 @@ function getJson(url) {
 
         request.on('error', reject);
     });
+}
+
+
+// Retry transient network resets and upstream 5xx responses.
+async function getJsonWithRetry(url, attempts = 3) {
+    let lastError;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+            return await getJson(url);
+        } catch (error) {
+            lastError = error;
+            const retryable = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|Upstream HTTP 5\d\d/i.test(
+                error.code || error.message || ''
+            );
+
+            if (!retryable || attempt === attempts - 1) {
+                throw error;
+            }
+
+            await new Promise((resolve) =>
+                setTimeout(resolve, 300 * (2 ** attempt))
+            );
+        }
+    }
+
+    throw lastError;
+}
+
+ 
+// Cache successful upstream responses to avoid repeating slow external calls.
+const upstreamCache = new Map();
+const upstreamInFlight = new Map();
+
+async function getJsonCached(url, ttlMs) {
+    const cached = upstreamCache.get(url);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+    if (upstreamInFlight.has(url)) return upstreamInFlight.get(url);
+
+    const pending = getJsonWithRetry(url)
+        .then((data) => {
+            upstreamCache.set(url, { data, expiresAt: Date.now() + ttlMs });
+            while (upstreamCache.size > 100) {
+                upstreamCache.delete(upstreamCache.keys().next().value);
+            }
+            return data;
+        })
+        .finally(() => upstreamInFlight.delete(url));
+
+    upstreamInFlight.set(url, pending);
+    return pending;
 }
 
 // ==========================================
@@ -231,11 +282,11 @@ function requestGemini(model, payload) {
             }
         );
 
-        // Allow Gemini more time to respond than the previous 25-second limit.
-        request.setTimeout(60000, () => {
+        // Fail fast so a stalled upstream request cannot block the assistant for a minute.
+        request.setTimeout(25000, () => {
             request.destroy(
                 Object.assign(
-                    Error('Gemini connection timed out after 60 seconds.'),
+                    Error('Gemini did not respond within 25 seconds. Please try again.'),
                     { code: 'ETIMEDOUT' }
                 )
             );
@@ -248,7 +299,7 @@ function requestGemini(model, payload) {
 }
 
 // Retry temporary API errors with exponential backoff.
-async function callModelWithRetry(model, payload, attempts = 2) {
+async function callModelWithRetry(model, payload, attempts = 1) {
     let lastResult;
 
     for (let attempt = 0; attempt < attempts; attempt++) {
@@ -262,7 +313,7 @@ async function callModelWithRetry(model, payload, attempts = 2) {
             lastResult = result;
 
             // Do not retry client errors such as invalid requests or invalid keys.
-            const retryableStatuses = [429, 500, 502, 503, 504];
+            const retryableStatuses = [500, 502, 503, 504];
 
             const isRetryable = retryableStatuses.includes(
                 result.status
@@ -291,14 +342,14 @@ async function callModelWithRetry(model, payload, attempts = 2) {
     return lastResult;
 }
 
-// Try the primary model, then use the fallback for network/server failures.
-// HTTP 429 is retried on the primary model but does not automatically switch
-// models because it may represent a project-wide quota or rate-limit condition.
+// Try the primary model once, then use fallback only for network/5xx failures.
+// HTTP 429 is neither retried nor sent to fallback: it may be a project-wide
+// quota/rate-limit condition, and another model request would add load.
 async function resilientGemini(payload) {
     const primary = await callModelWithRetry(
         MODEL,
         payload,
-        2
+        1
     );
 
     const shouldUseFallback =
@@ -331,7 +382,11 @@ async function resilientGemini(payload) {
         return {
             ...fallback,
             primaryUnavailable: true,
-            primaryModel: MODEL
+            primaryModel: MODEL,
+            primaryStatus: primary.status || null,
+            primaryError: primary.data?.error?.message || primary.message || null,
+            fallbackStatus: fallback.status || null,
+            fallbackError: fallback.data?.error?.message || fallback.message || null
         };
     }
 
@@ -356,10 +411,8 @@ function readJsonBody(req, maxBytes = 12000) {
 
             if (Buffer.byteLength(raw) > maxBytes) {
                 settled = true;
-
                 reject(Error('Payload too large'));
-
-                req.destroy();
+                req.resume();
             }
         });
 
@@ -407,7 +460,7 @@ async function route(req, res) {
             geminiModel: MODEL,
             geminiFallbackModel: FALLBACK_MODEL,
             geminiResilience:
-                'Primary retry with exponential backoff; fallback on network/server errors',
+                'One primary attempt; fallback on network/server errors; no retry on HTTP 429',
             airProvider: 'Open-Meteo Air Quality API / CAMS model data',
             keySource,
             note: 'Key presence does not prove successful authentication.'
@@ -439,8 +492,9 @@ async function route(req, res) {
                 format: 'json'
             });
 
-            const data = await getJson(
-                `https://geocoding-api.open-meteo.com/v1/search?${params}`
+            const data = await getJsonCached(
+                `https://geocoding-api.open-meteo.com/v1/search?${params}`,
+                24 * 60 * 60 * 1000
             );
 
             return send(res, 200, {
@@ -502,8 +556,9 @@ async function route(req, res) {
                 timezone: 'auto'
             });
 
-            const data = await getJson(
-                `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`
+            const data = await getJsonCached(
+                `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`,
+                10 * 60 * 1000
             );
 
             return send(res, 200, {
@@ -532,6 +587,14 @@ async function route(req, res) {
 
         const recentHits = (requestHits.get(ip) || [])
             .filter((timestamp) => now - timestamp < 60000);
+
+        if (requestHits.size > 1000) {
+            for (const [clientIp, hits] of requestHits) {
+                if (!hits.some((timestamp) => now - timestamp < 60000)) {
+                    requestHits.delete(clientIp);
+                }
+            }
+        }
 
         if (recentHits.length >= 12) {
             return send(res, 429, {
@@ -581,6 +644,9 @@ async function route(req, res) {
         const prompt = [
             'You are AirLab AI.',
             'Give practical, evidence-aware urban air-quality guidance.',
+            'Answer the user directly; avoid introductory filler or self-introductions.',
+            'For how-to questions, provide concrete, relevant steps. Finish the answer with a complete sentence.',
+            'If you cannot provide the requested guidance, state the limitation clearly rather than returning a partial introduction.',
             'Never invent live AQI, diagnoses or measured emission savings.',
             'Distinguish model estimates from observations.',
             `Context: ${context}`,
@@ -601,7 +667,7 @@ async function route(req, res) {
 
             generationConfig: {
                 temperature: 0.35,
-                maxOutputTokens: 900
+                maxOutputTokens: 600
             }
         });
 
@@ -626,32 +692,62 @@ async function route(req, res) {
                         ? 503
                         : 502;
 
+                const primaryDetail = result.primaryError
+                    ? ` Primary (${result.primaryModel}) returned: ${result.primaryError}`
+                    : '';
+                const fallbackDetail = result.fallbackError
+                    ? ` Fallback (${result.model || FALLBACK_MODEL}) returned: ${result.fallbackError}`
+                    : '';
+                const upstreamMessage = result.data?.error?.message ||
+                    `Gemini HTTP ${result.status}`;
+
+                console.error(
+                    'Gemini request failed:',
+                    JSON.stringify({
+                        primaryModel: result.primaryModel || MODEL,
+                        primaryStatus: result.primaryStatus || result.status,
+                        primaryError: result.primaryError || upstreamMessage,
+                        fallbackModel: result.model || FALLBACK_MODEL,
+                        fallbackStatus: result.fallbackStatus || result.status,
+                        fallbackError: result.fallbackError || upstreamMessage
+                    })
+                );
+
                 return send(res, statusCode, {
-                    error: isUnavailable
-                        ? 'Gemini is temporarily unavailable. AirLab retried the primary model and attempted the fallback model. Please try again shortly.'
-                        : (
-                            result.data?.error?.message ||
-                            `Gemini HTTP ${result.status}`
-                        ),
-
+                    error: result.status === 429
+                        ? 'Daily Gemini AI quota reached. The live AI assistant is temporarily unavailable. Please try again after the quota resets. Other AirLab features remain available.'
+                        : isUnavailable
+                            ? `Gemini is temporarily unavailable.${primaryDetail}${fallbackDetail}`
+                            : upstreamMessage,
                     upstreamStatus: result.status,
-
                     model: result.model || MODEL,
-
-                    primaryModel: result.primaryModel || null
+                    primaryModel: result.primaryModel || null,
+                    primaryStatus: result.primaryStatus || null,
+                    fallbackStatus: result.fallbackStatus || null
                 });
             }
 
-            const reply = result.data
-                ?.candidates?.[0]
+            const candidate = result.data?.candidates?.[0];
+            const reply = candidate
                 ?.content?.parts
                 ?.map((part) => part.text || '')
                 .join('\n')
                 .trim();
 
-            if (!reply) {
+            // Do not label a capped, blocked, or clearly incomplete generation as a live answer.
+            if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
                 return send(res, 502, {
-                    error: 'Gemini returned no text.'
+                    error: 'Gemini did not complete the response (' + candidate.finishReason + '). Please try again.'
+                });
+            }
+            if (
+                !reply ||
+                reply.length < 120 ||
+                !/[.!?][”"'')\]]?$/.test(reply) ||
+                /(?:here is|i am airlab ai|i can help)[^.!?]*$/i.test(reply)
+            ) {
+                return send(res, 502, {
+                    error: 'Gemini returned an incomplete answer. Please try again.'
                 });
             }
 
@@ -679,6 +775,7 @@ async function route(req, res) {
         '/',
         '/index.html',
         '/app.js',
+        '/simulation.js',
         '/styles.css',
         '/favicon.svg'
     ];
