@@ -72,7 +72,7 @@ nav button.active .nav-icon{background:var(--pink);color:white;box-shadow:0 4px 
 /* Main layout and header */
 main{max-width:1580px;margin-left:264px;padding:0 38px 38px;min-height:100vh}
 header{
-  position:sticky;top:0;z-index:6;height:88px;margin-bottom:28px;
+  position:sticky;top:0;z-index:6;min-height:88px;height:auto;padding:12px 0;margin-bottom:28px;
   display:flex;align-items:center;gap:15px;
   background:rgba(9,7,13,.82);border-bottom:1px solid rgba(58,38,58,.78);backdrop-filter:blur(18px)
 }
@@ -208,7 +208,7 @@ footer{padding:30px 0 12px;margin-top:18px;border-top:1px solid var(--line);colo
   #side.open{transform:translateX(0)}
   main{margin:0;padding:0 17px 28px}
   #menu{display:grid;place-items:center;flex:none}
-  header{height:76px;margin-bottom:20px;gap:12px}
+  header{min-height:76px;height:auto;margin-bottom:20px;gap:12px}
   header h1{font-size:19px}
   #status{max-width:160px;padding:7px 9px;font-size:9px}
   .hero{min-height:220px;padding:26px 23px}
@@ -218,10 +218,12 @@ footer{padding:30px 0 12px;margin-top:18px;border-top:1px solid var(--line);colo
 }
 @media(max-width:560px){
   main{padding-left:13px;padding-right:13px}
-  header{height:70px;margin-bottom:16px}
-  header h1{font-size:17px}
-  header small{font-size:8px;letter-spacing:1px}
-  #status{max-width:112px;white-space:normal;line-height:1.25}
+  header{min-height:70px;height:auto;margin-bottom:16px;gap:8px}
+  header h1{font-size:clamp(14px,4.4vw,17px);overflow-wrap:anywhere}
+  header small{font-size:7px;letter-spacing:.7px}
+  header>div{flex:1;min-width:0}
+  #status{max-width:86px;font-size:8px;padding:6px 7px}
+
   .hero{min-height:205px;padding:23px 19px;border-radius:17px}
   .hero h2{font-size:27px;letter-spacing:-.9px}
   .hero p{max-width:290px;font-size:11px}
