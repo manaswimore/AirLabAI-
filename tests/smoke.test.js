@@ -76,7 +76,8 @@ const noRemovalNoSource = calculate({
     C0: 40, Co: 20, V: 50, lambda: 0, P: 0.8,
     k: 0, CADR: 0, source: 0, t: 5
 });
-check(noRemovalNoSource.steadyState === null, 'No-removal case does not invent a steady state');
+check(noRemovalNoSource.steadyState === null, 'No-removal case has no single numeric steady-state value');
+check(noRemovalNoSource.equilibrium === 'non-unique', 'Zero-flow zero-source case is a non-unique equilibrium');
 check(noRemovalNoSource.concentration === 40, 'No-removal/no-source concentration stays constant');
 
 const noRemovalWithSource = calculate({
@@ -84,6 +85,7 @@ const noRemovalWithSource = calculate({
     k: 0, CADR: 0, source: 50, t: 2
 });
 check(noRemovalWithSource.steadyState === null, 'Source with no removal has no finite steady state');
+check(noRemovalWithSource.equilibrium === 'none', 'No-removal positive source has no equilibrium');
 check(Math.abs(noRemovalWithSource.concentration - 50) < 1e-10, 'No-removal source case increases concentration linearly');
 
 const equilibrium = calculate({ ...base, C0: normal.steadyState, t: 10 });
@@ -218,6 +220,13 @@ check(server.includes('requestHits.size > 1000'), 'rate limiter cleanup check');
 console.log('AirLab tests passed: ' + assertions + ' assertions.');
 
 check(simulationSource.includes('timeSeries'), 'simulator returns a time series');
+const shortRun=calculate({C0:0,Co:45,V:50,lambda:1,P:1,k:0,CADR:0,source:0,t:.1});
+check(new Set(shortRun.timeSeries.map(point=>point.time.toFixed(3))).size===25,'Short-run timestamps remain distinct');
+const nearZero=calculate({C0:55,Co:0,V:50,lambda:1e-16,P:.65,k:0,CADR:0,source:350,t:24});
+checkClose(nearZero.timeSeries[0].concentration,55,1e-10,'Near-zero rate preserves initial concentration');
+checkClose(nearZero.concentration,223,1e-8,'Near-zero rate uses stable concentration evolution');
+const extreme=calculate({C0:55,Co:80,V:50,lambda:1e308,P:.65,k:0,CADR:50,source:250,t:2.302585092994046});
+checkClose(extreme.concentration,52,1e-8,'Extreme finite rate avoids Infinity and NaN');
 check(app.includes("$('simseries').replaceChildren(table)"), 'simulator renders a unit-labelled time series');
 check(app.includes("$('simout').replaceChildren()"), 'invalid simulator output is cleared');
 check(app.includes('annualSoloKm'), 'mobility uses a shared annual solo-driving baseline');
