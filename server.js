@@ -644,6 +644,9 @@ async function route(req, res) {
         const prompt = [
             'You are AirLab AI.',
             'Give practical, evidence-aware urban air-quality guidance.',
+            'Answer the user directly; avoid introductory filler or self-introductions.',
+            'For how-to questions, provide concrete, relevant steps. Finish the answer with a complete sentence.',
+            'If you cannot provide the requested guidance, state the limitation clearly rather than returning a partial introduction.',
             'Never invent live AQI, diagnoses or measured emission savings.',
             'Distinguish model estimates from observations.',
             `Context: ${context}`,
@@ -724,16 +727,27 @@ async function route(req, res) {
                 });
             }
 
-            const reply = result.data
-                ?.candidates?.[0]
+            const candidate = result.data?.candidates?.[0];
+            const reply = candidate
                 ?.content?.parts
                 ?.map((part) => part.text || '')
                 .join('\n')
                 .trim();
 
-            if (!reply) {
+            // Do not label a capped, blocked, or clearly incomplete generation as a live answer.
+            if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
                 return send(res, 502, {
-                    error: 'Gemini returned no text.'
+                    error: 'Gemini did not complete the response (' + candidate.finishReason + '). Please try again.'
+                });
+            }
+            if (
+                !reply ||
+                reply.length < 120 ||
+                !/[.!?][”"'')\]]?$/.test(reply) ||
+                /(?:here is|i am airlab ai|i can help)[^.!?]*$/i.test(reply)
+            ) {
+                return send(res, 502, {
+                    error: 'Gemini returned an incomplete answer. Please try again.'
                 });
             }
 
