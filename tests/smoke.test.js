@@ -194,6 +194,10 @@ check(app.includes('function loadExperiments()'), 'safe storage check');
 check(app.includes('Number.isFinite(room)'), 'room validation check');
 
 check(app.includes('Number.isFinite(indoor)'), 'indoor validation check');
+check(app.includes("searchRequest: 0, airRequest: 0"), 'city and air requests use latest-request tokens');
+check(app.includes("window.addEventListener('storage'"), 'experiment history synchronizes across tabs');
+check(app.includes("current.time"), 'forecast chart is anchored to current observation time');
+check(app.includes("$('indoor').validity.badInput"), 'malformed indoor concentration input is rejected');
 
 check(app.includes('!Number.isFinite(km)'), 'mobility validation check');
 
