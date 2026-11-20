@@ -370,7 +370,7 @@
 
 
         <label>
-          Room volume V
+          Room volume V (m³)
 
           <input
             id="vol"
@@ -414,7 +414,7 @@
 
 
         <label>
-          Filter CADR
+          Filter CADR (m³/h)
 
           <input
             id="cadr"
@@ -457,6 +457,10 @@
       <h3>PM2.5 concentration over time</h3>
       <div id="simseries" aria-live="polite"></div>
 
+
+      <small>
+        Units: room volume V in m³; filter CADR in m³/h. Use consistent volume and hourly airflow units.
+      </small>
 
       <small>
         Equation: dC/dt = PλCout + S/V − (λ+k+CADR/V)C.
