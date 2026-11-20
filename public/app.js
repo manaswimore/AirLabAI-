@@ -195,8 +195,8 @@ function chart(times, values, currentTime, currentValue) {
         if(Number.isFinite(time)&&Number.isFinite(value)&&(!Number.isFinite(now)||time>now)&&(!Number.isFinite(now)||time<=now+86400000))series.push({time,value});
     }
     if(!series.length)return;series.sort((x,y)=>x.time-y.time);
-    const start=series[0].time,end=start+86400000,max=Math.max(10,...series.map(x=>x.value))*1.15,left=34,right=12,top=12,bottom=27,ph=h-top-bottom,pw=w-left-right;
-    ctx.font='11px DM Sans, sans-serif';ctx.fillStyle='#b5a4b4';ctx.strokeStyle='rgba(181,143,175,.18)';
+    const start=series[0].time,end=start+86400000,max=Math.max(10,...series.map(x=>x.value))*1.15,left=38,right=14,top=12,bottom=27,ph=h-top-bottom,pw=w-left-right;
+    ctx.font='12px DM Sans, sans-serif';ctx.fillStyle='#b5a4b4';ctx.strokeStyle='rgba(181,143,175,.18)';
     for(let i=0;i<=4;i++){const y=top+i*ph/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillText(String(Math.round(max*(4-i)/4)),2,y+4);}
     ctx.fillText('Now',left,h-6);ctx.fillText('24h',w-right-22,h-6);
     const pts=series.map(x=>({x:left+Math.max(0,Math.min(1,(x.time-start)/(end-start)))*pw,y:top+ph-x.value/max*ph}));
