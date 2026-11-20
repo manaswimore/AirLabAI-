@@ -212,6 +212,16 @@ check(app.includes('No matching place found'), 'unknown city feedback');
 check(app.includes('planOutput.replaceChildren()'), 'invalid household results are cleared');
 
 check(app.includes("$('mobout').replaceChildren()"), 'invalid mobility results are cleared');
+check(app.includes("Math.ceil(-Math.log10(interval)) + 1"), 'time-series precision adapts to sample interval');
+check(app.includes("formatNumber(steadyState)"), 'large steady-state values use compact numeric formatting');
+check(app.includes("formatNumber(value, 1)"), 'large t90 values use compact numeric formatting');
+check(app.includes("Location changed or refreshed. Generate a new household plan"), 'location changes invalidate prior household plan output');
+check(css.includes("white-space:normal;line-height:1.25;overflow-wrap:anywhere"), 'mobile location status can wrap instead of clipping');
+check(html.includes("Room volume V (m³)"), 'simulator room volume unit is explicit');
+check(html.includes("Filter CADR (m³/h)"), 'simulator CADR unit is explicit');
+check(server.includes("candidate.finishReason !== 'STOP'"), 'non-complete Gemini finish reasons are rejected');
+check(server.includes("reply.length < 120"), 'short Gemini introductory fragments are rejected');
+check(server.includes('Gemini returned an incomplete answer.'), 'incomplete Gemini answer returns an error instead of a live label');
 
 check(server.includes('upstreamInFlight'), 'in-flight request deduplication check');
 
