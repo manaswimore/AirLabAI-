@@ -17,10 +17,23 @@ function loadExperiments() {
 }
 
 const S = {
-    place: null,
-    air: null,
-    experiments: loadExperiments()
+    place: null, air: null, experiments: loadExperiments(),
+    searchRequest: 0, airRequest: 0
 };
+function clearAirDisplay(message) {
+    S.place = null; S.air = null;
+    $('status').textContent = message || 'Choose a location';
+    $('metrics').querySelectorAll('b').forEach(node => { node.textContent = '—'; });
+    $('insight').textContent = message || 'Choose a location to load the current model estimate.';
+    chart([], []);
+}
+function refreshExperiments() {
+    S.experiments = loadExperiments();
+    if ($('experiments').classList.contains('show')) renderHistory();
+}
+window.addEventListener('storage', event => {
+    if (event.key === 'alabRuns') refreshExperiments();
+});
 
 const tabs = [
     'overview',
@@ -101,12 +114,18 @@ async function api(url, options) {
 // ==========================================
 
 async function search() {
+    const query = $('city').value.trim();
+    const requestId = ++S.searchRequest;
+    if (query.length < 2) {
+        $('places').replaceChildren();
+        const message = document.createElement('p');
+        message.textContent = 'Enter at least two characters to search.';
+        $('places').append(message);
+        return;
+    }
     try {
-        const data = await api(
-            '/api/geocode?q=' +
-            encodeURIComponent($('city').value)
-        );
-
+        const data = await api('/api/geocode?q=' + encodeURIComponent(query));
+        if (requestId !== S.searchRequest || $('city').value.trim() !== query) return;
         $('places').replaceChildren();
 
         if (!Array.isArray(data.results) || data.results.length === 0) {
@@ -130,7 +149,7 @@ async function search() {
             $('places').append(button);
         });
     } catch (error) {
-        toast(error.message);
+        if (requestId === S.searchRequest) toast(error.message);
     }
 }
 
@@ -139,58 +158,25 @@ async function search() {
 // ==========================================
 
 async function load(place) {
+    const requestId = ++S.airRequest;
+    clearAirDisplay('Loading model data…');
     try {
-        const data = await api(
-            `/api/air-quality?lat=${place.latitude}&lon=${place.longitude}`
-        );
-
-        S.place = place;
-        S.air = data;
-
-        $('status').textContent = 'CAMS model data loaded';
-
-        const current = data.current || {};
-
-        const pairs = [
-            ['PM2.5', current.pm2_5, 'µg/m³'],
-            ['PM10', current.pm10, 'µg/m³'],
-            ['US AQI', current.us_aqi, 'model index'],
-            ['NO₂', current.nitrogen_dioxide, 'µg/m³']
-        ];
-
-        $('metrics').innerHTML = pairs.map((item) => `
-            <div>
-                ${item[0]}
-                <b>
-                    ${Number.isFinite(item[1])
-                        ? item[1].toFixed(1)
-                        : '—'}
-                </b>
-                ${item[2]}
-            </div>
-        `).join('');
-
-        const pm = current.pm2_5;
-
-        $('insight').textContent = pm == null
-            ? 'PM2.5 unavailable.'
-            : pm <= 15
-                ? 'Relatively lower modelled particle level; continue checking local readings.'
-                : pm <= 35
-                    ? 'Elevated modelled particles; reduce exposure near traffic and compare indoor/outdoor readings.'
-                    : pm <= 55
-                        ? 'High modelled particles; reduce strenuous outdoor activity and protect indoor air.'
-                        : 'Very high modelled particles; reduce prolonged outdoor exertion and check official advisories.';
-
-        $('insight').textContent +=
-            ` Grid point ${data.latitude.toFixed(3)}, ` +
-            `${data.longitude.toFixed(3)}. ` +
-            'Model estimate, not station measurement. US AQI is a model index derived separately from the pollutant concentration fields; its value may not match a same-hour PM2.5 reading because AQI reporting uses pollutant-specific averaging conventions.';
-
-        chart(data.hourly?.pm2_5 || []);
-
+        const data = await api(`/api/air-quality?lat=${place.latitude}&lon=${place.longitude}`);
+        if (requestId !== S.airRequest) return;
+        const current=data?.current, latitude=Number(data?.latitude), longitude=Number(data?.longitude);
+        if(!current||!Number.isFinite(latitude)||!Number.isFinite(longitude)||!Number.isFinite(current.pm2_5)||
+            !Array.isArray(data.hourly?.time)||!Array.isArray(data.hourly?.pm2_5)||data.hourly.time.length!==data.hourly.pm2_5.length)
+            throw Error('Air-quality data is incomplete or unavailable for this location. Please try again.');
+        S.place=place; S.air=data; $('status').textContent='CAMS model data loaded';
+        const pairs=[['PM2.5',current.pm2_5,'µg/m³'],['PM10',current.pm10,'µg/m³'],['US AQI',current.us_aqi,'model index'],['NO₂',current.nitrogen_dioxide,'µg/m³']];
+        $('metrics').innerHTML=pairs.map(item=>`<div>${item[0]}<b>${Number.isFinite(item[1])?item[1].toFixed(1):'—'}</b>${item[2]}</div>`).join('');
+        $('insight').textContent=current.pm2_5<=15?'Relatively lower modelled particle level; continue checking local readings.':current.pm2_5<=35?'Elevated modelled particles; reduce exposure near traffic and compare indoor/outdoor readings.':current.pm2_5<=55?'High modelled particles; reduce strenuous outdoor activity and protect indoor air.':'Very high modelled particles; reduce prolonged outdoor exertion and check official advisories.';
+        $('insight').textContent+=` Grid point ${latitude.toFixed(3)}, ${longitude.toFixed(3)}. `+'Model estimate, not station measurement. US AQI is a model index derived separately from pollutant concentration fields and may use a different averaging period than the current PM2.5 value.';
+        chart(data.hourly.time,data.hourly.pm2_5,data.current.time,current.pm2_5);
         toast('Model data loaded');
-    } catch (error) {
+    } catch(error) {
+        if(requestId!==S.airRequest)return;
+        clearAirDisplay('Air-quality data unavailable. Select the location again or try another city.');
         toast(error.message);
     }
 }
@@ -199,129 +185,26 @@ async function load(place) {
 // 6. PM2.5 CHART
 // ==========================================
 
-function chart(values) {
-    const canvas = $('chart');
-    const context = canvas.getContext('2d');
-
-    const width = canvas.clientWidth || 550;
-    const height = 190;
-    const ratio = window.devicePixelRatio || 1;
-
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
-
-    context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.clearRect(0, 0, width, height);
-
-    values = values.slice(0, 24).filter(Number.isFinite);
-
-    if (!values.length) return;
-
-    const max = Math.max(10, ...values) * 1.15;
-
-    const left = 28;
-    const right = 12;
-    const top = 12;
-    const bottom = 25;
-
-    const plotHeight = height - top - bottom;
-    const plotWidth = width - left - right;
-
-    context.font = '10px DM Sans, sans-serif';
-    context.fillStyle = '#8c788d';
-    context.strokeStyle = 'rgba(181,143,175,.13)';
-    context.lineWidth = 1;
-
-    for (let i = 0; i <= 4; i++) {
-        const y = top + i * plotHeight / 4;
-
-        context.beginPath();
-        context.moveTo(left, y);
-        context.lineTo(width - right, y);
-        context.stroke();
-
-        context.fillText(
-            String(Math.round(max * (4 - i) / 4)),
-            2,
-            y + 3
-        );
+function chart(times, values, currentTime, currentValue) {
+    const canvas=$('chart'),ctx=canvas.getContext('2d'),w=canvas.clientWidth||550,h=190,dpr=window.devicePixelRatio||1;
+    canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+    const now=Date.parse(currentTime),series=[];
+    if(Number.isFinite(now)&&Number.isFinite(currentValue))series.push({time:now,value:currentValue});
+    if(Array.isArray(times)&&Array.isArray(values))for(let i=0;i<Math.min(times.length,values.length);i++){
+        const time=Date.parse(times[i]),value=values[i];
+        if(Number.isFinite(time)&&Number.isFinite(value)&&(!Number.isFinite(now)||time>now)&&(!Number.isFinite(now)||time<=now+86400000))series.push({time,value});
     }
-
-    context.fillText('Now', left, height - 5);
-    context.fillText('24h', width - right - 18, height - 5);
-
-    const points = values.map((value, index) => ({
-        x: left + index * plotWidth / Math.max(1, values.length - 1),
-        y: top + plotHeight - value / max * plotHeight
-    }));
-
-    if (!points.length) return;
-
-    // Gradient fill
-    const fill = context.createLinearGradient(
-        0,
-        top,
-        0,
-        height - bottom
-    );
-
-    fill.addColorStop(0, 'rgba(255,79,154,.25)');
-    fill.addColorStop(1, 'rgba(255,79,154,0)');
-
-    context.beginPath();
-
-    points.forEach((point, index) => {
-        if (index) {
-            context.lineTo(point.x, point.y);
-        } else {
-            context.moveTo(point.x, point.y);
-        }
-    });
-
-    context.lineTo(
-        points[points.length - 1].x,
-        height - bottom
-    );
-
-    context.lineTo(points[0].x, height - bottom);
-    context.closePath();
-
-    context.fillStyle = fill;
-    context.fill();
-
-    // Chart line
-    context.beginPath();
-
-    points.forEach((point, index) => {
-        if (index) {
-            context.lineTo(point.x, point.y);
-        } else {
-            context.moveTo(point.x, point.y);
-        }
-    });
-
-    context.strokeStyle = '#ff5ca8';
-    context.lineWidth = 2.7;
-    context.lineJoin = 'round';
-    context.lineCap = 'round';
-    context.shadowColor = 'rgba(255,79,154,.4)';
-    context.shadowBlur = 9;
-
-    context.stroke();
-    context.shadowBlur = 0;
-
-    // Last point
-    const last = points[points.length - 1];
-
-    context.beginPath();
-    context.arc(last.x, last.y, 3.5, 0, Math.PI * 2);
-    context.fillStyle = '#ffc0dc';
-    context.fill();
+    if(!series.length)return;series.sort((x,y)=>x.time-y.time);
+    const start=series[0].time,end=start+86400000,max=Math.max(10,...series.map(x=>x.value))*1.15,left=34,right=12,top=12,bottom=27,ph=h-top-bottom,pw=w-left-right;
+    ctx.font='11px DM Sans, sans-serif';ctx.fillStyle='#b5a4b4';ctx.strokeStyle='rgba(181,143,175,.18)';
+    for(let i=0;i<=4;i++){const y=top+i*ph/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillText(String(Math.round(max*(4-i)/4)),2,y+4);}
+    ctx.fillText('Now',left,h-6);ctx.fillText('24h',w-right-22,h-6);
+    const pts=series.map(x=>({x:left+Math.max(0,Math.min(1,(x.time-start)/(end-start)))*pw,y:top+ph-x.value/max*ph}));
+    const grad=ctx.createLinearGradient(0,top,0,h-bottom);grad.addColorStop(0,'rgba(255,79,154,.25)');grad.addColorStop(1,'rgba(255,79,154,0)');
+    ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.lineTo(pts[pts.length-1].x,h-bottom);ctx.lineTo(pts[0].x,h-bottom);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+    ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.strokeStyle='#ff5ca8';ctx.lineWidth=2.7;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
+    ctx.beginPath();ctx.arc(pts[0].x,pts[0].y,4,0,Math.PI*2);ctx.fillStyle='#ffc0dc';ctx.fill();
 }
-
-// ==========================================
-// 7. HOUSEHOLD ACTION PLAN
-// ==========================================
 
 function plan() {
     if (!S.air || !S.place) {
@@ -488,6 +371,7 @@ function sim() {
     } = result;
 
     const experiment = {
+        id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2),
         date: new Date().toISOString(),
         C0: inputs.C0,
         Co: inputs.Co,
@@ -506,9 +390,12 @@ function sim() {
 
     const formatMinutes = (value, unavailable) =>
         value === null ? unavailable : value.toFixed(1) + ' min';
+    const steadyStateLabel = steadyState === null
+        ? (result.equilibrium === 'non-unique' ? 'Any concentration (no net change)' : 'No finite steady state')
+        : steadyState.toFixed(2) + ' µg/m³';
 
     $('simout').innerHTML = [
-        ['Steady state', steadyState === null ? 'No finite steady state' : steadyState.toFixed(2) + ' µg/m³'],
+        ['Steady state', steadyStateLabel],
         ['Final concentration', concentration.toFixed(2) + ' µg/m³'],
         ['t90 approach to steady state', formatMinutes(t90SteadyStateMinutes, 'Not defined')],
         ['Absolute 90% clearance', formatMinutes(t90AbsoluteMinutes, 'Not reachable')]
@@ -527,7 +414,7 @@ function sim() {
         const row = document.createElement('tr');
         const time = document.createElement('td');
         const value = document.createElement('td');
-        time.textContent = Number(point.time).toFixed(1);
+        time.textContent = Number(point.time).toFixed(inputs.t < 1 ? 3 : 1);
         value.textContent = Number(point.concentration).toFixed(2);
         row.append(time, value);
         body.append(row);
@@ -535,6 +422,7 @@ function sim() {
     table.append(body);
     $('simseries').replaceChildren(table);
 
+    S.experiments = loadExperiments();
     S.experiments.unshift(experiment);
     if (S.experiments.length > 100) S.experiments.length = 100;
     if (save()) toast('Experiment saved');
@@ -575,7 +463,7 @@ function renderHistory() {
         remove.type = 'button';
         remove.textContent = 'Delete';
         remove.addEventListener('click', () => {
-            S.experiments.splice(index, 1);
+            S.experiments = loadExperiments().filter(item => item.id ? item.id !== experiment.id : item !== experiment);
             save();
             renderHistory();
         });
@@ -845,8 +733,8 @@ $('csv').onclick = csv;
 $('clear').onclick = () => {
     if (confirm('Clear experiment history?')) {
         S.experiments = [];
-
-        save();
+        try { localStorage.setItem('alabRuns', '[]'); }
+        catch { toast('Could not clear experiment history. Browser storage may be unavailable.'); }
         renderHistory();
     }
 };
