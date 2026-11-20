@@ -1,86 +1,27 @@
 'use strict';
-
-(function (root) {
-    function calculateIndoorPM25(input) {
-        if (!input || typeof input !== 'object') {
-            throw new TypeError('Simulation inputs are required.');
-        }
-
-        const {
-            C0, Co, V, lambda, P, k, CADR, source, t
-        } = input;
-
-        const values = [C0, Co, V, lambda, P, k, CADR, source, t];
-
-        if (values.some((value) => !Number.isFinite(value))) {
-            throw new RangeError('All simulator inputs must be finite numbers.');
-        }
-
-        if (
-            C0 < 0 || Co < 0 || V <= 0 ||
-            lambda < 0 || P < 0 || P > 1 ||
-            k < 0 || CADR < 0 || source < 0 || t < 0
-        ) {
-            throw new RangeError('Simulator inputs are outside their valid ranges.');
-        }
-
-        // A is the total particle input rate per room volume (µg/m³/h).
-        // K is the total first-order removal rate (h⁻¹).
-        const A = P * lambda * Co + source / V;
-        const K = lambda + k + CADR / V;
-
-        // With no removal, there is no unique finite steady state.
-        // Concentration remains constant when A is zero, or rises linearly when A > 0.
-        if (K === 0) {
-            const timeSeries = Array.from({ length: 25 }, (_, index) => {
-                const time = t * index / 24;
-                return { time, concentration: C0 + A * time };
-            });
-            return {
-                A,
-                K,
-                steadyState: null,
-                concentration: C0 + A * t,
-                timeSeries,
-                t90SteadyStateMinutes: null,
-                t90AbsoluteMinutes: null
-            };
-        }
-
-        const steadyState = A / K;
-        const concentration =
-            steadyState + (C0 - steadyState) * Math.exp(-K * t);
-
-        const t90SteadyStateMinutes = Math.log(10) / K * 60;
-
-        // Absolute 90% clearance is possible only if the steady state
-        // is strictly below 10% of the initial concentration.
-        let t90AbsoluteMinutes = null;
-
-        if (C0 > 0 && steadyState < 0.1 * C0 && C0 > steadyState) {
-            const ratio = (0.1 * C0 - steadyState) / (C0 - steadyState);
-            t90AbsoluteMinutes = -Math.log(ratio) / K * 60;
-        }
-
-        const sampleCount = 25;
-        const timeSeries = Array.from({ length: sampleCount }, (_, index) => {
-            const time = t * index / (sampleCount - 1);
-            return {
-                time,
-                concentration: steadyState + (C0 - steadyState) * Math.exp(-K * time)
-            };
-        });
-
-        return {
-            A,
-            K,
-            steadyState,
-            concentration,
-            timeSeries,
-            t90SteadyStateMinutes,
-            t90AbsoluteMinutes
-        };
-    }
-
-    root.AirLabSimulation = Object.freeze({ calculateIndoorPM25 });
-}(typeof globalThis !== 'undefined' ? globalThis : window));
+(function(root){
+function calculateIndoorPM25(input){
+ if(!input||typeof input!=='object')throw new TypeError('Simulation inputs are required.');
+ const {C0,Co,V,lambda,P,k,CADR,source,t}=input,values=[C0,Co,V,lambda,P,k,CADR,source,t];
+ if(values.some(v=>!Number.isFinite(v)))throw new RangeError('All simulator inputs must be finite numbers.');
+ if(C0<0||Co<0||V<=0||lambda<0||P<0||P>1||k<0||CADR<0||source<0||t<0)throw new RangeError('Simulator inputs are outside their valid ranges.');
+ const outdoor=P*lambda*Co,indoor=source/V,filter=CADR/V;
+ if(![outdoor,indoor,filter].every(Number.isFinite))throw new RangeError('These input magnitudes exceed the simulator numeric range. Reduce the rates or source.');
+ const scale=Math.max(lambda,k,filter,indoor,1),den=lambda/scale+k/scale+filter/scale,K=scale*den;
+ if(!Number.isFinite(K))throw new RangeError('Combined removal rate is too large. Reduce the rate inputs.');
+ const A=outdoor+indoor;if(!Number.isFinite(A))throw new RangeError('Combined particle source is too large. Reduce the source inputs.');
+ const noRemoval=K===0,equilibrium=noRemoval?(A===0?'non-unique':'none'):'unique';
+ let steadyState=null,at=time=>C0+A*time;
+ if(!noRemoval){
+  steadyState=(outdoor/scale+indoor/scale)/den;
+  if(!Number.isFinite(steadyState))throw new RangeError('The calculated steady state is outside the supported numeric range.');
+  at=time=>C0+(steadyState-C0)*(-Math.expm1(-K*time));
+ }
+ const concentration=at(t);if(!Number.isFinite(concentration)||concentration<0)throw new RangeError('The calculated concentration is outside the supported numeric range.');
+ const t90SteadyStateMinutes=noRemoval?null:Math.log(10)/K*60;let t90AbsoluteMinutes=null;
+ if(!noRemoval&&C0>0&&steadyState<.1*C0&&steadyState<C0){const ratio=(.1*C0-steadyState)/(C0-steadyState);t90AbsoluteMinutes=-Math.log(ratio)/K*60;}
+ const timeSeries=Array.from({length:25},(_,i)=>{const time=t*i/24,value=at(time);if(!Number.isFinite(value)||value<0)throw new RangeError('The time series exceeds the supported numeric range.');return {time,concentration:value};});
+ return {A,K,steadyState,equilibrium,concentration,timeSeries,t90SteadyStateMinutes,t90AbsoluteMinutes};
+}
+root.AirLabSimulation=Object.freeze({calculateIndoorPM25});
+}(typeof globalThis!=='undefined'?globalThis:window));
