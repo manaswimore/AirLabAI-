@@ -5,15 +5,18 @@ function calculateIndoorPM25(input){
  const {C0,Co,V,lambda,P,k,CADR,source,t}=input,values=[C0,Co,V,lambda,P,k,CADR,source,t];
  if(values.some(v=>!Number.isFinite(v)))throw new RangeError('All simulator inputs must be finite numbers.');
  if(C0<0||Co<0||V<=0||lambda<0||P<0||P>1||k<0||CADR<0||source<0||t<0)throw new RangeError('Simulator inputs are outside their valid ranges.');
- const outdoor=P*lambda*Co,indoor=source/V,filter=CADR/V;
- if(![outdoor,indoor,filter].every(Number.isFinite))throw new RangeError('These input magnitudes exceed the simulator numeric range. Reduce the rates or source.');
+ const indoor=source/V,filter=CADR/V;
+ if(![indoor,filter].every(Number.isFinite))throw new RangeError('These input magnitudes exceed the simulator numeric range. Reduce the rates or source.');
  const scale=Math.max(lambda,k,filter,indoor,1),den=lambda/scale+k/scale+filter/scale,K=scale*den;
  if(!Number.isFinite(K))throw new RangeError('Combined removal rate is too large. Reduce the rate inputs.');
- const A=outdoor+indoor;if(!Number.isFinite(A))throw new RangeError('Combined particle source is too large. Reduce the source inputs.');
+ const scaledOutdoor=(lambda/scale)*P*Co;
+ const scaledIndoor=indoor/scale;
+ const scaledA=scaledOutdoor+scaledIndoor;
+ const A=K===0?P*lambda*Co+indoor:(Number.isFinite(scaledA*scale)?scaledA*scale:null);
  const noRemoval=K===0,equilibrium=noRemoval?(A===0?'non-unique':'none'):'unique';
  let steadyState=null,at=time=>C0+A*time;
  if(!noRemoval){
-  steadyState=(outdoor/scale+indoor/scale)/den;
+  steadyState=scaledA/den;
   if(!Number.isFinite(steadyState))throw new RangeError('The calculated steady state is outside the supported numeric range.');
   at=time=>C0+(steadyState-C0)*(-Math.expm1(-K*time));
  }
