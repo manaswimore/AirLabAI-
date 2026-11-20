@@ -222,7 +222,7 @@ footer{padding:30px 0 12px;margin-top:18px;border-top:1px solid var(--line);colo
   header h1{font-size:clamp(14px,4.4vw,17px);overflow-wrap:anywhere}
   header small{font-size:7px;letter-spacing:.7px}
   header>div{flex:1;min-width:0}
-  #status{max-width:86px;font-size:8px;padding:6px 7px}
+  #status{max-width:none;min-width:0;flex:0 1 auto;font-size:8px;padding:6px 7px;white-space:normal;line-height:1.25;overflow-wrap:anywhere}
 
   .hero{min-height:205px;padding:23px 19px;border-radius:17px}
   .hero h2{font-size:27px;letter-spacing:-.9px}
@@ -245,3 +245,7 @@ footer{padding:30px 0 12px;margin-top:18px;border-top:1px solid var(--line);colo
   #toast{right:13px;bottom:13px}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* Keep unusually large scientific simulator outputs readable within metric cards. */
+#simout>div{overflow-wrap:anywhere;word-break:normal}
+#simout b{display:block;max-width:100%;overflow-wrap:anywhere;word-break:break-word;font-size:clamp(13px,1.15vw,19px);line-height:1.35;font-variant-numeric:tabular-nums}
